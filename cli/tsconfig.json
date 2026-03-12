@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "outDir": "../dist-cli",
+    "rootDir": "..",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "@flovia/core/*": ["../core/*"],
+      "@flovia/core": ["../core/index.ts"],
+      "@flovia/connectors/*": ["../connectors/*"],
+      "@flovia/connectors": ["../connectors/index.ts"],
+      "@flovia/main/*": ["../main/*"],
+      "@flovia/main": ["../main/index.ts"]
+    },
+    "declaration": false,
+    "sourceMap": true
+  },
+  "include": [
+    "./**/*.ts",
+    "../core/**/*.ts"
+  ],
+  "exclude": [
+    "../node_modules"
+  ]
+}

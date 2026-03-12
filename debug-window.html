@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AI Session Debug</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    font-size: 13px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #cba6f7;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .header .badge {
+    background: #45475a;
+    color: #a6adc8;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+  .header-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .header-actions button {
+    background: #313244;
+    border: 1px solid #45475a;
+    color: #bac2de;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .header-actions button:hover {
+    background: #45475a;
+    color: #cdd6f4;
+  }
+
+  /* Log list */
+  .log-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .log-container::-webkit-scrollbar { width: 6px; }
+  .log-container::-webkit-scrollbar-thumb { background: #45475a; border-radius: 3px; }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #6c7086;
+    gap: 8px;
+  }
+  .empty-state .icon { font-size: 36px; }
+  .empty-state p { font-size: 13px; }
+
+  /* Entry card */
+  .entry {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: border-color .15s;
+  }
+  .entry:hover { border-color: #45475a; }
+  .entry.status-pending { border-left: 3px solid #f9e2af; }
+  .entry.status-pending.streaming { border-left: 3px solid #89b4fa; animation: pulse 1.5s infinite; }
+  .entry.status-success { border-left: 3px solid #a6e3a1; }
+  .entry.status-error   { border-left: 3px solid #f38ba8; }
+  .entry.status-aborted { border-left: 3px solid #fab387; }
+  
+  @keyframes pulse {
+    0%, 100% { border-left-color: #89b4fa; }
+    50% { border-left-color: #cba6f7; }
+  }
+
+  .entry-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .entry-header:hover { background: #1e1e2e; }
+
+  .entry-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .entry-id {
+    color: #6c7086;
+    font-size: 11px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    flex-shrink: 0;
+  }
+  .entry-model {
+    background: #313244;
+    color: #89b4fa;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+  }
+  .entry-time {
+    color: #6c7086;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .entry-status {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .entry-status.pending { background: #f9e2af22; color: #f9e2af; }
+  .entry-status.success { background: #a6e3a122; color: #a6e3a1; }
+  .entry-status.error   { background: #f38ba822; color: #f38ba8; }
+  .entry-status.aborted { background: #fab38722; color: #fab387; }
+
+  .entry-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .entry-duration {
+    color: #6c7086;
+    font-size: 11px;
+  }
+  .entry-chevron {
+    color: #6c7086;
+    font-size: 11px;
+    transition: transform .15s;
+  }
+  .entry.expanded .entry-chevron { transform: rotate(90deg); }
+
+  /* Entry body (expanded) */
+  .entry-body {
+    display: none;
+    border-top: 1px solid #313244;
+  }
+  .entry.expanded .entry-body { display: block; }
+
+  .entry-section {
+    padding: 10px 12px;
+    border-bottom: 1px solid #313244;
+  }
+  .entry-section:last-child { border-bottom: none; }
+
+  .entry-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #a6adc8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .entry-section-title .url {
+    color: #6c7086;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .msg-block {
+    margin-bottom: 6px;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .msg-block:last-child { margin-bottom: 0; }
+
+  .msg-role {
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+  }
+  .msg-role .chevron {
+    font-size: 9px;
+    transition: transform .15s;
+    color: inherit;
+    opacity: .6;
+  }
+  .msg-block.collapsed .msg-role .chevron { transform: rotate(-90deg); }
+  .msg-role .msg-summary {
+    font-weight: 400;
+    opacity: .6;
+    margin-left: 4px;
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 500px;
+  }
+  .msg-role.system    { background: #cba6f722; color: #cba6f7; }
+  .msg-role.user      { background: #89b4fa22; color: #89b4fa; }
+  .msg-role.assistant { background: #a6e3a122; color: #a6e3a1; }
+
+  .msg-content {
+    background: #11111b;
+    padding: 8px 10px;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    max-height: 500px;
+    overflow-y: auto;
+    color: #cdd6f4;
+  }
+  .msg-block.collapsed .msg-content { display: none; }
+  .msg-content::-webkit-scrollbar { width: 4px; }
+  .msg-content::-webkit-scrollbar-thumb { background: #45475a; border-radius: 2px; }
+
+  /* ── File block (collapsible) inside msg-content ── */
+  .file-block {
+    margin: 4px 0;
+    border: 1px solid #313244;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .file-block-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: #1e1e2e;
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+    color: #89b4fa;
+    font-weight: 600;
+  }
+  .file-block-header:hover { background: #262637; }
+  .file-block-header .fb-chevron {
+    font-size: 9px;
+    transition: transform .15s;
+    color: #6c7086;
+  }
+  .file-block.collapsed .fb-chevron { transform: rotate(-90deg); }
+  .file-block-header .fb-icon { font-size: 13px; }
+  .file-block-header .fb-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-block-header .fb-lines { color: #6c7086; font-weight: 400; font-size: 10px; flex-shrink: 0; }
+  .file-block-body {
+    padding: 6px 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    line-height: 1.45;
+    color: #bac2de;
+    max-height: 300px;
+    overflow-y: auto;
+    background: #11111b;
+  }
+  .file-block.collapsed .file-block-body { display: none; }
+  .file-block-body::-webkit-scrollbar { width: 3px; }
+  .file-block-body::-webkit-scrollbar-thumb { background: #45475a; border-radius: 2px; }
+
+  /* ── File list (collapsible group) ── */
+  .file-list-group {
+    margin: 4px 0;
+    border: 1px solid #313244;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .file-list-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: #1e1e2e;
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+    color: #a6e3a1;
+    font-weight: 600;
+  }
+  .file-list-header:hover { background: #262637; }
+  .file-list-header .fl-chevron {
+    font-size: 9px;
+    transition: transform .15s;
+    color: #6c7086;
+  }
+  .file-list-group.collapsed .fl-chevron { transform: rotate(-90deg); }
+  .file-list-body {
+    padding: 4px 8px;
+    background: #11111b;
+    max-height: 250px;
+    overflow-y: auto;
+    font-size: 11px;
+    line-height: 1.6;
+    color: #bac2de;
+  }
+  .file-list-group.collapsed .file-list-body { display: none; }
+  .file-list-body::-webkit-scrollbar { width: 3px; }
+  .file-list-body::-webkit-scrollbar-thumb { background: #45475a; border-radius: 2px; }
+  .file-list-item { padding: 1px 0; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; }
+  .file-list-item .fli-icon { margin-right: 4px; }
+
+  /* ── Plain text segment ── */
+  .text-segment {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .response-block {
+    background: #11111b;
+    border-radius: 6px;
+    padding: 8px 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .response-block::-webkit-scrollbar { width: 4px; }
+  .response-block::-webkit-scrollbar-thumb { background: #45475a; border-radius: 2px; }
+  .response-block.error-text { color: #f38ba8; }
+  .response-block.streaming-response { border: 1px solid #89b4fa44; }
+
+  .streaming-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: #89b4fa22;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #89b4fa;
+    font-weight: 500;
+  }
+  .streaming-dot {
+    width: 8px;
+    height: 8px;
+    background: #89b4fa;
+    border-radius: 50%;
+    animation: streaming-pulse 1s infinite;
+  }
+  @keyframes streaming-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  .copy-btn {
+    background: #313244;
+    border: 1px solid #45475a;
+    color: #a6adc8;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .copy-btn:hover { background: #45475a; color: #cdd6f4; }
+
+  /* Filter bar */
+  .filter-bar {
+    display: flex;
+    gap: 4px;
+    padding: 6px 8px;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    flex-shrink: 0;
+  }
+  .filter-btn {
+    background: none;
+    border: 1px solid #313244;
+    color: #6c7086;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .filter-btn:hover { background: #313244; color: #bac2de; }
+  .filter-btn.active { background: #313244; color: #cdd6f4; border-color: #45475a; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🐛 AI Session Debug <span class="badge" id="count-badge">0 requests</span></h1>
+  <div class="header-actions">
+    <button id="btn-expand-all">Expand All</button>
+    <button id="btn-collapse-all">Collapse All</button>
+    <button id="btn-copy-all">Copy All JSON</button>
+    <button id="btn-clear">Clear</button>
+  </div>
+</div>
+
+<div class="filter-bar">
+  <button class="filter-btn active" data-filter="all">All</button>
+  <button class="filter-btn" data-filter="pending">⏳ Pending</button>
+  <button class="filter-btn" data-filter="success">✅ Success</button>
+  <button class="filter-btn" data-filter="error">❌ Error</button>
+  <button class="filter-btn" data-filter="aborted">⏹ Aborted</button>
+</div>
+
+<div class="log-container" id="log-container">
+  <div class="empty-state" id="empty-state">
+    <div class="icon">🔍</div>
+    <p>No AI requests yet. Send a chat message to see prompts here.</p>
+  </div>
+</div>
+
+<script>
+  const { ipcRenderer } = require('electron');
+  
+  console.log('[DebugWindow HTML] Script loaded, ipcRenderer:', !!ipcRenderer);
+
+  let entries = [];
+  let activeFilter = 'all';
+  let nextToggleId = 1;
+
+  const logContainer = document.getElementById('log-container');
+  const emptyState = document.getElementById('empty-state');
+  const countBadge = document.getElementById('count-badge');
+
+  function formatTime(iso) {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      + '.' + String(d.getMilliseconds()).padStart(3, '0');
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /** File extension → emoji */
+  function fileEmoji(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    const m = { ts:'🟦', tsx:'🟦', js:'🟨', jsx:'🟨', json:'📋', css:'🎨', html:'🌐',
+      md:'📝', py:'🐍', rs:'🦀', go:'🐹', yaml:'⚙️', yml:'⚙️', toml:'⚙️',
+      sh:'🖥', txt:'📄', svg:'🖼', png:'🖼', jpg:'🖼', lock:'🔒' };
+    return m[ext] || '📄';
+  }
+
+  /**
+   * Parse message content into structured segments:
+   *  - { type:'text', content }
+   *  - { type:'file', path, content, lines }
+   *  - { type:'fileList', files:string[] }
+   */
+  function parseContent(raw) {
+    const segments = [];
+    // Split on "--- File: <path> ---" blocks
+    const fileBlockRe = /^--- File: (.+?) ---$/gm;
+    let lastIdx = 0;
+    let match;
+    const matches = [];
+    while ((match = fileBlockRe.exec(raw)) !== null) {
+      matches.push({ idx: match.index, end: match.index + match[0].length, path: match[1] });
+    }
+
+    if (matches.length === 0) {
+      // No file blocks — check for file list pattern (lines like "  - src/index.ts")
+      return parseForFileLists(raw);
+    }
+
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      // Text before this file block
+      if (m.idx > lastIdx) {
+        const before = raw.slice(lastIdx, m.idx);
+        if (before.trim()) segments.push(...parseForFileLists(before));
+      }
+      // File content: from end of header to next match or end
+      const contentStart = m.end + 1; // skip newline after header
+      const contentEnd = (i + 1 < matches.length) ? matches[i + 1].idx : raw.length;
+      const fileContent = raw.slice(contentStart, contentEnd).replace(/\n\n$/, '\n');
+      const lineCount = fileContent.split('\n').length;
+      segments.push({ type: 'file', path: m.path, content: fileContent, lines: lineCount });
+      lastIdx = contentEnd;
+    }
+    if (lastIdx < raw.length) {
+      const tail = raw.slice(lastIdx);
+      if (tail.trim()) segments.push(...parseForFileLists(tail));
+    }
+    return segments;
+  }
+
+  /** Detect consecutive lines like "  - path/to/file" and group them into a fileList segment */
+  function parseForFileLists(text) {
+    const segments = [];
+    const lines = text.split('\n');
+    let i = 0;
+    let textBuf = [];
+
+    function flushText() {
+      if (textBuf.length) {
+        const t = textBuf.join('\n');
+        if (t.trim()) segments.push({ type: 'text', content: t });
+        textBuf = [];
+      }
+    }
+
+    while (i < lines.length) {
+      // Match file list entries: "  - path" or "- path"
+      if (/^\s{0,4}-\s+\S/.test(lines[i])) {
+        // Lookahead: collect consecutive list items
+        const fileLines = [];
+        while (i < lines.length && /^\s{0,4}-\s+\S/.test(lines[i])) {
+          const fname = lines[i].replace(/^\s*-\s+/, '').trim();
+          // Only treat as file if it looks like a file path (has extension or slash)
+          if (/[./]/.test(fname)) {
+            fileLines.push(fname);
+          } else {
+            break;
+          }
+          i++;
+        }
+        if (fileLines.length >= 3) {
+          flushText();
+          segments.push({ type: 'fileList', files: fileLines });
+        } else {
+          // Not enough items to be a file list, treat as text
+          for (const f of fileLines) textBuf.push(`  - ${f}`);
+        }
+      } else {
+        textBuf.push(lines[i]);
+        i++;
+      }
+    }
+    flushText();
+    return segments;
+  }
+
+  /** Render parsed segments into HTML */
+  function renderSegments(segments) {
+    return segments.map(seg => {
+      if (seg.type === 'file') {
+        const id = 'fb-' + (nextToggleId++);
+        const fileName = seg.path.split('/').pop() || seg.path;
+        return `<div class="file-block collapsed" id="${id}">
+          <div class="file-block-header" onclick="document.getElementById('${id}').classList.toggle('collapsed')">
+            <span class="fb-chevron">▼</span>
+            <span class="fb-icon">${fileEmoji(fileName)}</span>
+            <span class="fb-path">${escapeHtml(seg.path)}</span>
+            <span class="fb-lines">${seg.lines} lines</span>
+          </div>
+          <div class="file-block-body">${escapeHtml(seg.content)}</div>
+        </div>`;
+      }
+      if (seg.type === 'fileList') {
+        const id = 'fl-' + (nextToggleId++);
+        return `<div class="file-list-group collapsed" id="${id}">
+          <div class="file-list-header" onclick="document.getElementById('${id}').classList.toggle('collapsed')">
+            <span class="fl-chevron">▼</span>
+            📁 ${seg.files.length} files
+          </div>
+          <div class="file-list-body">
+            ${seg.files.map(f => `<div class="file-list-item"><span class="fli-icon">${fileEmoji(f)}</span>${escapeHtml(f)}</div>`).join('')}
+          </div>
+        </div>`;
+      }
+      // text
+      return `<div class="text-segment">${escapeHtml(seg.content)}</div>`;
+    }).join('');
+  }
+
+  /** Summarize content for the collapsed role header */
+  function summarizeContent(content) {
+    const fileBlocks = (content.match(/^--- File: .+? ---$/gm) || []).length;
+    const lines = content.split('\n').length;
+    const chars = content.length;
+    const parts = [];
+    if (fileBlocks > 0) parts.push(`${fileBlocks} file${fileBlocks > 1 ? 's' : ''}`);
+    parts.push(`${lines} lines`);
+    if (chars > 1000) parts.push(`${(chars / 1024).toFixed(1)}KB`);
+    return parts.join(' · ');
+  }
+
+  function renderEntry(entry) {
+    const div = document.createElement('div');
+    div.className = `entry status-${entry.status}`;
+    div.dataset.id = entry.id;
+    div.dataset.status = entry.status;
+
+    const messagesHtml = entry.messages.map(m => {
+      const msgId = 'msg-' + (nextToggleId++);
+      const segments = parseContent(m.content);
+      const summary = summarizeContent(m.content);
+      return `<div class="msg-block" id="${msgId}">
+        <div class="msg-role ${m.role}" onclick="document.getElementById('${msgId}').classList.toggle('collapsed')">
+          <span class="chevron">▼</span>
+          ${m.role}
+          <span class="msg-summary">${escapeHtml(summary)}</span>
+        </div>
+        <div class="msg-content">${renderSegments(segments)}</div>
+      </div>`;
+    }).join('');
+
+    let responseHtml = '';
+    if (entry.status === 'pending') {
+      if (entry.response) {
+        // Streaming in progress - show partial response with indicator
+        const respSegments = parseContent(entry.response);
+        const charCount = entry.response.length;
+        responseHtml = `
+          <div class="streaming-indicator">
+            <span class="streaming-dot"></span>
+            Streaming... (${charCount} chars received)
+          </div>
+          <div class="response-block streaming-response">${renderSegments(respSegments)}</div>
+        `;
+      } else {
+        responseHtml = '<div class="response-block" style="color:#f9e2af;">⏳ Waiting for response…</div>';
+      }
+    } else if (entry.status === 'aborted') {
+      if (entry.response) {
+        const respSegments = parseContent(entry.response);
+        responseHtml = `
+          <div class="response-block error-text">⏹ Request was aborted (partial response below)</div>
+          <div class="response-block">${renderSegments(respSegments)}</div>
+        `;
+      } else {
+        responseHtml = '<div class="response-block error-text">⏹ Request was aborted by user</div>';
+      }
+    } else if (entry.status === 'error') {
+      responseHtml = `<div class="response-block error-text">❌ ${escapeHtml(entry.error || 'Unknown error')}</div>`;
+    } else if (entry.response) {
+      const respSegments = parseContent(entry.response);
+      responseHtml = `<div class="response-block">${renderSegments(respSegments)}</div>`;
+    }
+
+    const durationHtml = entry.durationMs != null ? `<span class="entry-duration">${entry.durationMs}ms</span>` : '';
+
+    div.innerHTML = `
+      <div class="entry-header" onclick="toggleEntry(${entry.id})">
+        <div class="entry-meta">
+          <span class="entry-id">#${entry.id}</span>
+          <span class="entry-model" title="${escapeHtml(entry.model)}">${escapeHtml(entry.model)}</span>
+          <span class="entry-time">${formatTime(entry.timestamp)}</span>
+        </div>
+        <div class="entry-right">
+          ${durationHtml}
+          <span class="entry-status ${entry.status}">${entry.status}</span>
+          <span class="entry-chevron">▶</span>
+        </div>
+      </div>
+      <div class="entry-body">
+        <div class="entry-section">
+          <div class="entry-section-title">
+            Request — ${entry.messages.length} message(s)
+            <span class="url">${escapeHtml(entry.baseUrl)}</span>
+            <button class="copy-btn" onclick="copyMessages(${entry.id})">Copy JSON</button>
+          </div>
+          ${messagesHtml}
+        </div>
+        <div class="entry-section">
+          <div class="entry-section-title">
+            Response
+            <button class="copy-btn" onclick="copyResponse(${entry.id})">Copy</button>
+          </div>
+          ${responseHtml}
+        </div>
+      </div>
+    `;
+
+    return div;
+  }
+
+  function updateUI() {
+    const filtered = activeFilter === 'all' ? entries : entries.filter(e => e.status === activeFilter);
+    countBadge.textContent = `${entries.length} request${entries.length !== 1 ? 's' : ''}`;
+    emptyState.style.display = filtered.length === 0 ? 'flex' : 'none';
+
+    // Remove existing entries
+    logContainer.querySelectorAll('.entry').forEach(el => el.remove());
+
+    // Render in reverse order (newest on top)
+    for (let i = filtered.length - 1; i >= 0; i--) {
+      logContainer.appendChild(renderEntry(filtered[i]));
+    }
+  }
+
+  function toggleEntry(id) {
+    const el = logContainer.querySelector(`.entry[data-id="${id}"]`);
+    if (el) el.classList.toggle('expanded');
+  }
+
+  function copyMessages(id) {
+    const entry = entries.find(e => e.id === id);
+    if (entry) navigator.clipboard.writeText(JSON.stringify(entry.messages, null, 2));
+  }
+
+  function copyResponse(id) {
+    const entry = entries.find(e => e.id === id);
+    if (entry) navigator.clipboard.writeText(entry.response || entry.error || '');
+  }
+
+  // ── IPC listeners ──
+  ipcRenderer.on('debug-log-init', (_event, log) => {
+    entries = log;
+    updateUI();
+  });
+
+  ipcRenderer.on('debug-log-entry', (_event, entry) => {
+    entries.push(entry);
+    updateUI();
+    logContainer.scrollTop = 0;
+  });
+
+  ipcRenderer.on('debug-log-update', (_event, update) => {
+    const entry = entries.find(e => e.id === update.id);
+    if (entry) {
+      Object.assign(entry, update);
+      updateUI();
+    }
+  });
+
+  // ── Button handlers ──
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    entries = [];
+    ipcRenderer.invoke('debug-clear');
+    updateUI();
+  });
+
+  document.getElementById('btn-expand-all').addEventListener('click', () => {
+    logContainer.querySelectorAll('.entry').forEach(el => el.classList.add('expanded'));
+  });
+
+  document.getElementById('btn-collapse-all').addEventListener('click', () => {
+    logContainer.querySelectorAll('.entry').forEach(el => el.classList.remove('expanded'));
+  });
+
+  document.getElementById('btn-copy-all').addEventListener('click', () => {
+    navigator.clipboard.writeText(JSON.stringify(entries, null, 2));
+  });
+
+  // Filter buttons
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeFilter = btn.dataset.filter;
+      updateUI();
+    });
+  });
+</script>
+
+</body>
+</html>

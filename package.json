@@ -1,0 +1,135 @@
+{
+  "name": "flovia",
+  "version": "0.0.0",
+  "description": "flovia.io — AI-powered developer workspace (Desktop, Web, CLI)",
+  "main": "dist-main/main/index.js",
+  "private": true,
+  "bin": {
+    "flovia": "./bin/launch.js"
+  },
+  "keywords": [
+    "ai",
+    "electron",
+    "desktop",
+    "coding-assistant",
+    "developer-tools",
+    "flovia"
+  ],
+  "author": "flovia-io",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flovia-io/flovia"
+  },
+  "homepage": "https://flovia.io",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "//── Desktop (Electron) ──": "",
+    "dev": "npm run build:main && concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "start": "npm run build:main && vite build && electron .",
+    "//── Web App ──": "",
+    "web": "concurrently -n ui,api -c cyan,green \"vite\" \"tsx watch server/index.ts\"",
+    "web:prod": "vite build && tsx server/index.ts",
+    "//── CLI ──": "",
+    "ask": "tsx cli/index.ts",
+    "agent": "tsx cli/index.ts -m agent",
+    "chat": "tsx cli/index.ts -m chat",
+    "//── Build ──": "",
+    "build": "npm run build:main && vite build && electron-builder",
+    "build:main": "tsc && tsc-alias",
+    "build:cli": "tsc --project cli/tsconfig.json && tsc-alias --project cli/tsconfig.json",
+    "build:server": "tsc --project server/tsconfig.json && tsc-alias --project server/tsconfig.json",
+    "stage-packages": "bash scripts/stage-packages.sh",
+    "build:mac": "npm run build:main && vite build && electron-builder --mac",
+    "build:win": "npm run build:main && vite build && electron-builder --win",
+    "build:linux": "npm run build:main && vite build && electron-builder --linux",
+    "//── Server (standalone) ──": "",
+    "server": "tsx server/index.ts",
+    "server:dev": "tsx watch server/index.ts",
+    "//── Test ──": "",
+    "test:server": "bash scripts/test-server.sh",
+    "//── Docker ──": "",
+    "docker:build": "docker build -t flovia .",
+    "docker:run": "docker run --rm -it -v $(pwd):/workspace flovia",
+    "//── Native rebuild ──": "",
+    "postinstall": "node -e \"try{require('electron')}catch(e){process.exit(0)}\" && electron-rebuild -f -w node-pty || true",
+    "rebuild": "electron-rebuild -f -w node-pty"
+  },
+  "build": {
+    "appId": "io.flovia.app",
+    "productName": "flovia",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "dist-main/**/*",
+      "preload.js",
+      "debug-window.html",
+      "renderer/dist/**/*"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^25.3.0",
+    "@types/nodemailer": "^7.0.11",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "tsc-alias": "^1.8.16",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0",
+    "wait-on": "^8.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.9",
+    "@mui/material": "^7.3.9",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "@xyflow/react": "^12.10.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "imapflow": "^1.2.13",
+    "mailparser": "^3.9.4",
+    "node-pty": "^1.1.0",
+    "nodemailer": "^8.0.2",
+    "openai": "^6.22.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "ws": "^8.19.0"
+  }
+}

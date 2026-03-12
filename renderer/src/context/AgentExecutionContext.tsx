@@ -44,6 +44,7 @@ export interface AgentExecutionAPI {
   completeStep: (stepId: string, output?: unknown, extras?: Partial<TraceStep>) => void;
   failStep: (stepId: string, error: string) => void;
   finishTrace: (status?: 'success' | 'error') => void;
+  clearTraces: () => void;
 }
 
 // ── Context ──
@@ -86,6 +87,7 @@ export function AgentExecutionProvider({ children }: { children: ReactNode }) {
     completeStep: trace.completeStep,
     failStep: trace.failStep,
     finishTrace: trace.finishTrace,
+    clearTraces: trace.clearTraces,
   }), [configs, trace]);
 
   return (

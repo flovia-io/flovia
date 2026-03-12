@@ -71,15 +71,68 @@ export function createSessionFolder(title?: string): SessionFolderResult {
     
     // Create the folder
     fs.mkdirSync(folderPath, { recursive: true });
-    
-    // Create a basic README to mark it as a session folder
-    const readme = `# Session: ${title || 'New Session'}
 
-This workspace was created automatically for a chat session.
-Created at: ${new Date().toISOString()}
-`;
-    fs.writeFileSync(path.join(folderPath, 'README.md'), readme, 'utf-8');
-    
+    // If this is a workflow project, create .flovia/workflows/ with a starter workflow JSON
+    const isWorkflow = title?.includes('workflow');
+    if (isWorkflow) {
+      const wfDir = path.join(folderPath, '.flovia', 'workflows');
+      fs.mkdirSync(wfDir, { recursive: true });
+
+      const ts = Date.now();
+      const wfId = `wf-${ts}-${Math.random().toString(36).slice(2, 8)}`;
+      const starterWorkflow = {
+        id: wfId,
+        name: 'My Workflow',
+        description: 'New custom workflow',
+        nodes: [
+          {
+            id: `wfn-${ts}-1`,
+            type: 'workflowNode',
+            position: { x: 100, y: 200 },
+            data: {
+              label: 'Chat Input',
+              icon: '💬',
+              nodeType: 'trigger',
+              config: { triggerType: 'chat-input' },
+              subtitle: 'User sends a message',
+            },
+          },
+          {
+            id: `wfn-${ts}-2`,
+            type: 'workflowNode',
+            position: { x: 380, y: 200 },
+            data: {
+              label: 'AI Response',
+              icon: '🤖',
+              nodeType: 'llm',
+              config: {
+                type: 'llm',
+                prompt: '{{ $json.message }}',
+                stream: true,
+                systemPrompt: 'You are a helpful AI assistant.',
+              },
+              subtitle: 'Streaming AI response',
+            },
+          },
+        ],
+        edges: [
+          { id: `wfe-${ts}-1`, source: `wfn-${ts}-1`, target: `wfn-${ts}-2`, animated: true },
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      fs.writeFileSync(
+        path.join(wfDir, `${wfId}.json`),
+        JSON.stringify(starterWorkflow, null, 2),
+        'utf-8'
+      );
+    } else {
+      // For non-workflow sessions, just create a marker file
+      const readme = `# Session: ${title || 'New Session'}\n\nCreated at: ${new Date().toISOString()}\n`;
+      fs.writeFileSync(path.join(folderPath, 'README.md'), readme, 'utf-8');
+    }
+
     return {
       success: true,
       folderPath,

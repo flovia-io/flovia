@@ -1,422 +1,107 @@
 /**
- * AIDebugPanel — Inline AI debug tab that displays all agent/AI calls in real time.
+ * AIDebugPanel — Agent trace / execution view.
  *
- * Shows:
- * - All traces (agent runs) with their steps
- * - Request/response for each LLM call
- * - Classification/structured outputs rendered as mini workflow nodes
- * - Allows editing classification results inline
+ * Renders agent runs in the same visual style as the workflow execution panel:
+ * - Multiple runs listed in a sidebar (newest first)
+ * - Per-step timeline with status dots, expandable input/output
+ * - Phase-category color coding and token usage badges
+ * - Run header with stats, duration, and clear/stop actions
+ * - Stops reflecting when agent work is complete (no infinite running)
  *
- * Always visible (no developer options gate), updates in real time via AgentExecutionContext.
+ * Shares step cards, data blocks, status icons, and layout primitives
+ * with the workflow ExecutionsPanel via ../shared/ExecutionViewParts.
  */
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Box from '@mui/material/Box';
-import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
-import Collapse from '@mui/material/Collapse';
-import Stack from '@mui/material/Stack';
 import Divider from '@mui/material/Divider';
-import MuiIconButton from '@mui/material/IconButton';
-import TextField from '@mui/material/TextField';
+import Chip from '@mui/material/Chip';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
-import Alert from '@mui/material/Alert';
-
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ErrorIcon from '@mui/icons-material/Error';
-import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import EditIcon from '@mui/icons-material/Edit';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import HistoryIcon from '@mui/icons-material/History';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import StopCircleIcon from '@mui/icons-material/StopCircle';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import BugReportIcon from '@mui/icons-material/BugReport';
 
 import { useAgentExecution } from '../context/AgentExecutionContext';
-import type { AgentTrace, TraceStep, PhaseCategory } from '../types/agent.types';
+import type { AgentTrace, TraceStep } from '../types/agent.types';
 
-/* ─── Category Colors ─── */
-const categoryColors: Record<string, { bg: string; border: string; text: string }> = {
-  entry:          { bg: '#e3f2fd', border: '#1976d2', text: '#0d47a1' },
-  classification: { bg: '#fff8e1', border: '#f9a825', text: '#e65100' },
-  research:       { bg: '#e8f5e9', border: '#43a047', text: '#1b5e20' },
-  planning:       { bg: '#f3e5f5', border: '#8e24aa', text: '#4a148c' },
-  execution:      { bg: '#ffebee', border: '#e53935', text: '#b71c1c' },
-  verification:   { bg: '#e0f2f1', border: '#00897b', text: '#004d40' },
-  output:         { bg: '#eceff1', border: '#546e7a', text: '#263238' },
-};
+import {
+  StatusIcon,
+  StatBadge,
+  RunHeader,
+  StepTimeline,
+  formatDuration,
+  STATUS_COLORS,
+} from './shared/ExecutionViewParts';
+import type { StepCardData } from './shared/ExecutionViewParts';
 
-const statusIcon = (status: string) => {
-  switch (status) {
-    case 'success':
-    case 'completed':
-      return <CheckCircleIcon sx={{ color: '#43a047', fontSize: 16 }} />;
-    case 'error':
-    case 'failed':
-      return <ErrorIcon sx={{ color: '#e53935', fontSize: 16 }} />;
-    case 'running':
-      return <HourglassEmptyIcon sx={{ color: '#1976d2', fontSize: 16, animation: 'spin 1s linear infinite', '@keyframes spin': { from: { transform: 'rotate(0deg)' }, to: { transform: 'rotate(360deg)' } } }} />;
-    default:
-      return <HourglassEmptyIcon sx={{ color: '#757575', fontSize: 16 }} />;
-  }
-};
+// ─── Trace → StepCardData adapter (keeps conversion in the renderer) ────────
 
-/* Detect if output is a structured/classification result */
-function isStructuredOutput(output: unknown): output is Record<string, unknown> {
-  return typeof output === 'object' && output !== null && !Array.isArray(output);
+function traceStepToCardData(step: TraceStep): StepCardData {
+  return {
+    nodeId: step.id,
+    label: step.nodeLabel,
+    status: step.status === 'success' ? 'completed' : step.status === 'error' ? 'failed' : step.status,
+    durationMs: step.durationMs,
+    input: step.input,
+    output: step.output,
+    error: step.error,
+    category: step.category,
+    type: step.type,
+    tokens: step.tokens,
+    timestamp: step.timestamp,
+  };
 }
 
-function isClassification(step: TraceStep): boolean {
-  return step.category === 'classification' || (
-    isStructuredOutput(step.output) && (
-      'needsFileChanges' in (step.output as Record<string, unknown>) ||
-      'wantsTextSearch' in (step.output as Record<string, unknown>) ||
-      'shouldContinue' in (step.output as Record<string, unknown>) ||
-      'satisfied' in (step.output as Record<string, unknown>)
-    )
-  );
+// ─── Run list item status normalization ─────────────────────────────────────
+
+function traceStatusToRunStatus(status: string): string {
+  if (status === 'success') return 'completed';
+  if (status === 'error') return 'failed';
+  return status; // 'running'
 }
 
-/* ─── Structured Output Node (mini workflow-style display) ─── */
-function StructuredOutputNode({ data, onEdit }: { data: Record<string, unknown>; onEdit?: (key: string, value: unknown) => void }) {
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
+// ─── Main Panel ─────────────────────────────────────────────────────────────
 
-  const entries = Object.entries(data).filter(([k]) => k !== 'undefined');
-
-  return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-      {entries.map(([key, value]) => {
-        const isBoolean = typeof value === 'boolean';
-        const isEditing = editingKey === key;
-
-        return (
-          <Paper
-            key={key}
-            variant="outlined"
-            sx={{
-              p: 1,
-              minWidth: 120,
-              borderRadius: 2,
-              borderColor: isBoolean ? (value ? '#43a047' : '#e53935') : '#90a4ae',
-              borderWidth: 2,
-              bgcolor: isBoolean ? (value ? '#e8f5e9' : '#ffebee') : '#fafafa',
-              cursor: onEdit ? 'pointer' : 'default',
-              transition: 'all 0.15s ease',
-              '&:hover': onEdit ? { boxShadow: 2 } : {},
-            }}
-            onClick={() => {
-              if (onEdit && isBoolean) {
-                onEdit(key, !value);
-              } else if (onEdit && !isEditing) {
-                setEditingKey(key);
-                setEditValue(JSON.stringify(value));
-              }
-            }}
-          >
-            <Typography variant="caption" sx={{ fontWeight: 600, color: '#546e7a', display: 'block', mb: 0.25 }}>
-              {key}
-            </Typography>
-            {isEditing ? (
-              <TextField
-                size="small"
-                value={editValue}
-                onChange={e => setEditValue(e.target.value)}
-                onBlur={() => {
-                  try {
-                    onEdit?.(key, JSON.parse(editValue));
-                  } catch {
-                    onEdit?.(key, editValue);
-                  }
-                  setEditingKey(null);
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    try {
-                      onEdit?.(key, JSON.parse(editValue));
-                    } catch {
-                      onEdit?.(key, editValue);
-                    }
-                    setEditingKey(null);
-                  }
-                  if (e.key === 'Escape') setEditingKey(null);
-                }}
-                autoFocus
-                sx={{ '& input': { fontSize: 12, py: 0.25 } }}
-              />
-            ) : (
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 12 }}>
-                {isBoolean ? (
-                  <Chip
-                    label={value ? 'TRUE' : 'FALSE'}
-                    size="small"
-                    sx={{
-                      bgcolor: value ? '#43a047' : '#e53935',
-                      color: '#fff',
-                      fontWeight: 700,
-                      fontSize: 11,
-                      height: 22,
-                    }}
-                  />
-                ) : typeof value === 'string' ? (
-                  (value as string).length > 80 ? (value as string).slice(0, 80) + '…' : (value as string)
-                ) : Array.isArray(value) ? (
-                  `[${(value as unknown[]).length} items]`
-                ) : (
-                  JSON.stringify(value)
-                )}
-              </Typography>
-            )}
-            {onEdit && !isBoolean && (
-              <EditIcon sx={{ fontSize: 10, color: '#90a4ae', position: 'absolute', top: 4, right: 4 }} />
-            )}
-          </Paper>
-        );
-      })}
-    </Box>
-  );
-}
-
-/* ─── Step Detail Card ─── */
-function StepCard({ step, isLast }: { step: TraceStep; isLast: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const colors = categoryColors[step.category] ?? categoryColors.output;
-  const isClassified = isClassification(step);
-
-  return (
-    <Paper
-      variant="outlined"
-      sx={{
-        mb: isLast ? 0 : 1,
-        borderColor: colors.border,
-        borderLeft: `4px solid ${colors.border}`,
-        borderRadius: 1.5,
-        overflow: 'hidden',
-      }}
-    >
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          px: 1.5,
-          py: 0.75,
-          bgcolor: colors.bg,
-          cursor: 'pointer',
-          '&:hover': { filter: 'brightness(0.97)' },
-        }}
-        onClick={() => setExpanded(!expanded)}
-      >
-        {statusIcon(step.status)}
-        <Chip label={step.category} size="small" sx={{ bgcolor: colors.border, color: '#fff', fontWeight: 600, fontSize: 10, height: 20 }} />
-        <Typography variant="body2" sx={{ fontWeight: 600, color: colors.text, flex: 1 }}>
-          {step.nodeLabel}
-        </Typography>
-        <Typography variant="caption" sx={{ color: '#78909c', mr: 1 }}>
-          {step.type}
-        </Typography>
-        {step.durationMs != null && (
-          <Typography variant="caption" sx={{ color: '#78909c', mr: 1, fontFamily: 'monospace' }}>
-            {step.durationMs}ms
-          </Typography>
-        )}
-        {expanded ? <ExpandLessIcon sx={{ fontSize: 18, color: '#90a4ae' }} /> : <ExpandMoreIcon sx={{ fontSize: 18, color: '#90a4ae' }} />}
-      </Box>
-
-      {/* Expanded Content */}
-      <Collapse in={expanded}>
-        <Box sx={{ px: 1.5, py: 1, bgcolor: '#fafafa' }}>
-          <Typography variant="caption" sx={{ color: '#546e7a', fontWeight: 600 }}>
-            Summary:
-          </Typography>
-          <Typography variant="body2" sx={{ mb: 1 }}>
-            {String(step.summary)}
-          </Typography>
-
-          {/* Input */}
-          {step.input != null ? (
-            <>
-              <Typography variant="caption" sx={{ color: '#546e7a', fontWeight: 600, mt: 1, display: 'block' }}>
-                Request / Input:
-              </Typography>
-              <Paper
-                sx={{
-                  p: 1,
-                  bgcolor: '#263238',
-                  color: '#a5d6a7',
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  borderRadius: 1,
-                  maxHeight: 200,
-                  overflow: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  mb: 1,
-                  position: 'relative',
-                }}
-              >
-                <Tooltip title="Copy">
-                  <MuiIconButton
-                    size="small"
-                    sx={{ position: 'absolute', top: 2, right: 2, color: '#78909c' }}
-                    onClick={() => navigator.clipboard.writeText(JSON.stringify(step.input, null, 2))}
-                  >
-                    <ContentCopyIcon sx={{ fontSize: 14 }} />
-                  </MuiIconButton>
-                </Tooltip>
-                {JSON.stringify(step.input, null, 2)}
-              </Paper>
-            </>
-          ) : null}
-
-          {/* Output — with structured display for classification results */}
-          {step.output != null ? (
-            <>
-              <Typography variant="caption" sx={{ color: '#546e7a', fontWeight: 600, mt: 1, display: 'block' }}>
-                Response / Output:
-              </Typography>
-              {isClassified && isStructuredOutput(step.output) ? (
-                <StructuredOutputNode data={step.output as Record<string, unknown>} />
-              ) : (
-                <Paper
-                  sx={{
-                    p: 1,
-                    bgcolor: '#263238',
-                    color: '#80cbc4',
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    borderRadius: 1,
-                    maxHeight: 200,
-                    overflow: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    position: 'relative',
-                  }}
-                >
-                  <Tooltip title="Copy">
-                    <MuiIconButton
-                      size="small"
-                      sx={{ position: 'absolute', top: 2, right: 2, color: '#78909c' }}
-                      onClick={() => navigator.clipboard.writeText(JSON.stringify(step.output, null, 2))}
-                    >
-                      <ContentCopyIcon sx={{ fontSize: 14 }} />
-                    </MuiIconButton>
-                  </Tooltip>
-                  {JSON.stringify(step.output, null, 2)}
-                </Paper>
-              )}
-            </>
-          ) : null}
-
-          {/* Error */}
-          {step.error && (
-            <Alert severity="error" sx={{ mt: 1, fontSize: 12 }}>
-              {step.error}
-            </Alert>
-          )}
-        </Box>
-      </Collapse>
-    </Paper>
-  );
-}
-
-/* ─── Trace Card ─── */
-function TraceCard({ trace, isActive, onSelect }: { trace: AgentTrace; isActive: boolean; onSelect: () => void }) {
-  const [expanded, setExpanded] = useState(isActive || trace.status === 'running');
-
-  // Auto-expand running traces
-  useEffect(() => {
-    if (trace.status === 'running') setExpanded(true);
-  }, [trace.status]);
-
-  return (
-    <Paper
-      variant="outlined"
-      sx={{
-        mb: 1.5,
-        borderRadius: 2,
-        borderColor: isActive ? '#1976d2' : '#e0e0e0',
-        borderWidth: isActive ? 2 : 1,
-        overflow: 'hidden',
-      }}
-    >
-      {/* Trace Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          px: 2,
-          py: 1,
-          bgcolor: isActive ? '#e3f2fd' : '#f5f5f5',
-          cursor: 'pointer',
-          '&:hover': { bgcolor: isActive ? '#bbdefb' : '#eeeeee' },
-        }}
-        onClick={() => { setExpanded(!expanded); onSelect(); }}
-      >
-        {statusIcon(trace.status)}
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>
-          {trace.agentName}
-        </Typography>
-        <Typography variant="caption" sx={{ color: '#78909c', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {trace.userRequest.slice(0, 60)}{trace.userRequest.length > 60 ? '…' : ''}
-        </Typography>
-        <Chip
-          label={`${trace.steps.length} steps`}
-          size="small"
-          sx={{ fontSize: 10, height: 20, bgcolor: '#e0e0e0' }}
-        />
-        {trace.totalDurationMs != null && (
-          <Typography variant="caption" sx={{ color: '#78909c', fontFamily: 'monospace' }}>
-            {(trace.totalDurationMs / 1000).toFixed(1)}s
-          </Typography>
-        )}
-        <Typography variant="caption" sx={{ color: '#9e9e9e' }}>
-          {new Date(trace.startedAt).toLocaleTimeString()}
-        </Typography>
-        {expanded ? <ExpandLessIcon sx={{ fontSize: 18, color: '#90a4ae' }} /> : <ExpandMoreIcon sx={{ fontSize: 18, color: '#90a4ae' }} />}
-      </Box>
-
-      {/* Steps */}
-      <Collapse in={expanded}>
-        <Box sx={{ px: 2, py: 1.5 }}>
-          {trace.steps.length === 0 ? (
-            <Typography variant="body2" sx={{ color: '#9e9e9e', fontStyle: 'italic' }}>
-              Waiting for steps…
-            </Typography>
-          ) : (
-            trace.steps.map((step, i) => (
-              <StepCard key={step.id} step={step} isLast={i === trace.steps.length - 1} />
-            ))
-          )}
-        </Box>
-      </Collapse>
-    </Paper>
-  );
-}
-
-/* ─── Main Debug Panel ─── */
 export default function AIDebugPanel() {
-  const agentExec = useAgentExecution();
-  const { traces, activeTraceId, setActiveTraceId } = agentExec;
+  const { traces, activeTraceId, setActiveTraceId, finishTrace, clearTraces } = useAgentExecution();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
+  const [autoSelect, setAutoSelect] = useState(true);
 
-  // Auto-scroll to latest running trace
+  // Auto-select newest running trace
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = 0;
+    if (!autoSelect) return;
+    const running = traces.find(t => t.status === 'running');
+    if (running && running.id !== activeTraceId) {
+      setActiveTraceId(running.id);
     }
-  }, [traces, autoScroll]);
+  }, [traces, autoSelect, activeTraceId, setActiveTraceId]);
 
-  // Count running traces
+  const activeTrace = useMemo(
+    () => traces.find(t => t.id === activeTraceId) || null,
+    [traces, activeTraceId],
+  );
+
+  const handleClearAll = useCallback(() => {
+    clearTraces();
+  }, [clearTraces]);
+
+  const handleStopRunning = useCallback(() => {
+    const running = traces.find(t => t.status === 'running');
+    if (running) finishTrace('success');
+  }, [traces, finishTrace]);
+
   const runningCount = traces.filter(t => t.status === 'running').length;
-  const totalSteps = traces.reduce((s, t) => s + t.steps.length, 0);
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#fafafa' }}>
-      {/* Toolbar */}
+      {/* ── Toolbar ── */}
       <Box
         sx={{
           display: 'flex',
@@ -426,49 +111,199 @@ export default function AIDebugPanel() {
           py: 1,
           borderBottom: '1px solid #e0e0e0',
           bgcolor: '#fff',
+          flexShrink: 0,
         }}
       >
+        <BugReportIcon sx={{ fontSize: 20, color: 'primary.main' }} />
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
-          🐛 AI Debug — All Agent Calls
+          Agent Traces
         </Typography>
         {runningCount > 0 && (
           <Chip
             label={`${runningCount} running`}
             size="small"
-            sx={{ bgcolor: '#1976d2', color: '#fff', fontWeight: 600, fontSize: 10, height: 22, animation: 'pulse 1.5s infinite', '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.6 } } }}
+            sx={{
+              bgcolor: '#3b82f6',
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: 10,
+              height: 22,
+              animation: 'pulse 1.5s infinite',
+              '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.6 } },
+            }}
           />
         )}
-        <Chip label={`${traces.length} traces`} size="small" sx={{ fontSize: 10, height: 20 }} />
-        <Chip label={`${totalSteps} steps`} size="small" sx={{ fontSize: 10, height: 20 }} />
-        <Tooltip title={autoScroll ? 'Auto-scroll ON' : 'Auto-scroll OFF'}>
-          <MuiIconButton size="small" onClick={() => setAutoScroll(!autoScroll)} sx={{ color: autoScroll ? '#1976d2' : '#9e9e9e' }}>
-            <RefreshIcon sx={{ fontSize: 18 }} />
-          </MuiIconButton>
+        <Chip label={`${traces.length} runs`} size="small" sx={{ fontSize: 10, height: 20 }} />
+        {runningCount > 0 && (
+          <Tooltip title="Stop running agent">
+            <IconButton size="small" onClick={handleStopRunning} sx={{ color: '#ef4444' }}>
+              <StopCircleIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+        <Tooltip title="Clear all traces">
+          <span>
+            <IconButton size="small" onClick={handleClearAll} disabled={traces.length === 0} sx={{ color: '#78909c' }}>
+              <DeleteSweepIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </span>
         </Tooltip>
       </Box>
 
-      {/* Traces List */}
-      <Box ref={scrollRef} sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-        {traces.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 6 }}>
-            <Typography variant="h6" sx={{ color: '#bdbdbd', mb: 1 }}>No agent traces yet</Typography>
-            <Typography variant="body2" sx={{ color: '#9e9e9e' }}>
-              Send a message in the chat to see AI calls here in real time.
-              <br />
-              Every agent step — research, classification, planning, execution, verification — will be logged.
-            </Typography>
+      {/* ── Body: runs list + detail (matching workflow ExecutionsPanel layout) ── */}
+      {traces.length === 0 ? (
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+          <BugReportIcon sx={{ fontSize: 48, color: '#e0e0e0' }} />
+          <Typography variant="h6" sx={{ color: '#bdbdbd' }}>No agent traces yet</Typography>
+          <Typography variant="body2" sx={{ color: '#9e9e9e', textAlign: 'center', maxWidth: 320 }}>
+            Send a message in the chat to see AI agent calls here in real time.
+            Every step — research, classification, planning, execution, verification — will be logged.
+          </Typography>
+        </Box>
+      ) : (
+        <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          {/* ── Runs sidebar ── */}
+          <Box
+            ref={scrollRef}
+            sx={{
+              width: 280,
+              borderRight: 1,
+              borderColor: 'divider',
+              overflow: 'auto',
+              bgcolor: '#fafafa',
+              flexShrink: 0,
+            }}
+          >
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HistoryIcon sx={{ fontSize: 20, color: 'primary.main' }} />
+              <Typography variant="subtitle2" fontWeight={700}>Runs</Typography>
+              <Chip label={traces.length} size="small" sx={{ ml: 'auto', height: 22, fontSize: 11, fontWeight: 700 }} />
+            </Box>
+            <Divider />
+            <List dense sx={{ py: 0.5 }}>
+              {traces.map((trace, idx) => {
+                const normStatus = traceStatusToRunStatus(trace.status);
+                const failedCount = trace.steps.filter(s => s.status === 'error').length;
+
+                return (
+                  <ListItemButton
+                    key={trace.id}
+                    selected={trace.id === activeTraceId}
+                    onClick={() => { setActiveTraceId(trace.id); setAutoSelect(false); }}
+                    sx={{
+                      mx: 0.5,
+                      borderRadius: 1.5,
+                      mb: 0.25,
+                      transition: 'all 0.15s',
+                      ...(trace.id === activeTraceId && {
+                        bgcolor: 'primary.main',
+                        color: '#fff',
+                        '&:hover': { bgcolor: 'primary.dark' },
+                        '& .MuiTypography-root': { color: '#fff' },
+                        '& .MuiChip-root': { bgcolor: 'rgba(255,255,255,0.2)', color: '#fff' },
+                        '& .MuiSvgIcon-root': { color: '#fff !important' },
+                      }),
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 32 }}>
+                      <StatusIcon status={normStatus} size={18} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <span style={{ fontWeight: 700, fontSize: 12 }}>{trace.agentName}</span>
+                          {failedCount > 0 && (
+                            <Chip label={`${failedCount} err`} size="small" color="error" variant="outlined" sx={{ height: 16, fontSize: 9 }} />
+                          )}
+                        </Box>
+                      }
+                      secondary={
+                        <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <AccessTimeIcon sx={{ fontSize: 10 }} />
+                          <span style={{ fontSize: 10 }}>{new Date(trace.startedAt).toLocaleTimeString()}</span>
+                          {trace.totalDurationMs != null && <span style={{ fontSize: 10 }}> · {formatDuration(trace.totalDurationMs)}</span>}
+                        </Box>
+                      }
+                      secondaryTypographyProps={{ fontSize: 10 }}
+                    />
+                    <Chip
+                      label={`${trace.steps.length} steps`}
+                      size="small"
+                      sx={{ height: 20, fontSize: 10, fontWeight: 600 }}
+                    />
+                  </ListItemButton>
+                );
+              })}
+            </List>
           </Box>
-        ) : (
-          traces.map(trace => (
-            <TraceCard
-              key={trace.id}
-              trace={trace}
-              isActive={trace.id === activeTraceId}
-              onSelect={() => setActiveTraceId(trace.id)}
-            />
-          ))
-        )}
+
+          {/* ── Run detail ── */}
+          <Box sx={{ flex: 1, overflow: 'auto', p: 0 }}>
+            {activeTrace ? (
+              <TraceDetail trace={activeTrace} traceIndex={traces.indexOf(activeTrace) + 1} />
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary', gap: 1 }}>
+                <HistoryIcon sx={{ fontSize: 48, opacity: 0.2 }} />
+                <Typography sx={{ fontSize: 14 }}>Select a trace to view execution details</Typography>
+              </Box>
+            )}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+// ─── Trace Detail (uses shared RunHeader + StepTimeline) ────────────────────
+
+function TraceDetail({ trace, traceIndex }: { trace: AgentTrace; traceIndex: number }) {
+  const normStatus = traceStatusToRunStatus(trace.status);
+  const completedCount = trace.steps.filter(s => s.status === 'success').length;
+  const failedCount = trace.steps.filter(s => s.status === 'error').length;
+  const totalTokens = trace.steps.reduce(
+    (sum, s) => sum + (s.tokens?.total || 0),
+    0,
+  );
+
+  const stepCards: StepCardData[] = trace.steps.map(traceStepToCardData);
+
+  return (
+    <Box sx={{ p: 2.5 }}>
+      <RunHeader
+        status={normStatus}
+        label={`${trace.agentName} — Run #${traceIndex}`}
+        startedAt={trace.startedAt}
+        finishedAt={trace.finishedAt}
+        stepCount={trace.steps.length}
+        completedCount={completedCount}
+        failedCount={failedCount}
+        durationMs={trace.totalDurationMs}
+        extra={
+          totalTokens > 0 ? (
+            <StatBadge label="Tokens" value={totalTokens.toLocaleString()} color="#8b5cf6" />
+          ) : undefined
+        }
+      />
+
+      {/* User request banner */}
+      <Box
+        sx={{
+          mb: 2,
+          p: 1.5,
+          bgcolor: '#e3f2fd',
+          borderRadius: 2,
+          border: '1px solid #bbdefb',
+        }}
+      >
+        <Typography variant="caption" sx={{ color: '#1565c0', fontWeight: 700, fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+          User Request
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 0.5, color: '#0d47a1' }}>
+          {trace.userRequest}
+        </Typography>
       </Box>
+
+      <StepTimeline steps={stepCards} showCategory />
     </Box>
   );
 }

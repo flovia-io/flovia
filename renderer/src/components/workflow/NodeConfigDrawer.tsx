@@ -199,6 +199,7 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
             <LlmConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
             <DecisionConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
             <ActionConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
+            <DeveloperConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
           </Box>
         )}
 
@@ -764,6 +765,130 @@ function ActionConfig({ node, cfg, onUpdate }: ConfigProps) {
           })}
         </>
       )}
+    </>
+  );
+}
+
+// ─── Developer Agent Config ─────────────────────────────────────────────────
+
+const DEVELOPER_TOOLS = [
+  { id: 'file-read', label: 'Read Files' },
+  { id: 'file-write', label: 'Write Files' },
+  { id: 'file-search', label: 'Search Files' },
+  { id: 'file-tree', label: 'File Tree' },
+  { id: 'terminal', label: 'Run Terminal Commands' },
+  { id: 'browser', label: 'Browse URLs' },
+];
+
+function DeveloperConfig({ node, cfg, onUpdate }: ConfigProps) {
+  if (node.data.nodeType !== 'developer') return null;
+
+  const enabledTools = (cfg.tools as string[]) || ['file-read', 'file-write', 'file-search', 'file-tree'];
+
+  return (
+    <>
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Agent Mode</InputLabel>
+        <Select
+          value={(cfg.agentMode as string) || 'full'}
+          label="Agent Mode"
+          onChange={(e) => onUpdate(node.id, {
+            config: { ...cfg, agentMode: e.target.value },
+            subtitle: e.target.value === 'full' ? 'Plan → Edit → Verify' :
+                     e.target.value === 'edit-only' ? 'Direct file editing' :
+                     'Plan only (no edits)',
+          })}
+        >
+          <MenuItem value="full">Full Agent (Plan → Edit → Verify)</MenuItem>
+          <MenuItem value="edit-only">Edit Only (direct file changes)</MenuItem>
+          <MenuItem value="plan-only">Plan Only (output plan, no edits)</MenuItem>
+        </Select>
+      </FormControl>
+
+      <TextField
+        label="Max Iterations"
+        size="small"
+        type="number"
+        fullWidth
+        value={(cfg.maxIterations as number) || 10}
+        onChange={(e) => onUpdate(node.id, {
+          config: { ...cfg, maxIterations: parseInt(e.target.value) || 10 },
+        })}
+        helperText="Maximum edit/verify cycles"
+        sx={{ mb: 2 }}
+      />
+
+      <Typography variant="caption" fontWeight={700} sx={{ mb: 1, display: 'block', color: 'text.secondary' }}>
+        Tools
+      </Typography>
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Enabled Tools</InputLabel>
+        <Select
+          multiple
+          value={enabledTools}
+          label="Enabled Tools"
+          onChange={(e) => onUpdate(node.id, {
+            config: { ...cfg, tools: e.target.value as string[] },
+          })}
+          renderValue={(selected) => (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {(selected as string[]).map(v => {
+                const tool = DEVELOPER_TOOLS.find(t => t.id === v);
+                return <Chip key={v} label={tool?.label || v} size="small" sx={{ height: 20, fontSize: 10 }} />;
+              })}
+            </Box>
+          )}
+        >
+          {DEVELOPER_TOOLS.map(tool => (
+            <MenuItem key={tool.id} value={tool.id}>
+              <Checkbox checked={enabledTools.includes(tool.id)} size="small" />
+              <ListItemText primary={tool.label} />
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <FormControl size="small" fullWidth sx={{ mb: 1.5 }}>
+        <InputLabel>Plan Before Editing</InputLabel>
+        <Select
+          value={cfg.planFirst != null ? String(cfg.planFirst) : 'true'}
+          label="Plan Before Editing"
+          onChange={(e) => onUpdate(node.id, {
+            config: { ...cfg, planFirst: e.target.value === 'true' },
+          })}
+        >
+          <MenuItem value="true">Yes — create action plan first</MenuItem>
+          <MenuItem value="false">No — edit files directly</MenuItem>
+        </Select>
+      </FormControl>
+
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Verify After Changes</InputLabel>
+        <Select
+          value={cfg.verify != null ? String(cfg.verify) : 'true'}
+          label="Verify After Changes"
+          onChange={(e) => onUpdate(node.id, {
+            config: { ...cfg, verify: e.target.value === 'true' },
+          })}
+        >
+          <MenuItem value="true">Yes — verify changes satisfy the request</MenuItem>
+          <MenuItem value="false">No — skip verification</MenuItem>
+        </Select>
+      </FormControl>
+
+      <TextField
+        label="System Prompt Override"
+        size="small"
+        fullWidth
+        multiline
+        rows={3}
+        value={(cfg.systemPrompt as string) || ''}
+        onChange={(e) => onUpdate(node.id, {
+          config: { ...cfg, systemPrompt: e.target.value },
+        })}
+        placeholder="(optional) Custom system prompt for this agent"
+        sx={{ mb: 2 }}
+      />
     </>
   );
 }

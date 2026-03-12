@@ -8,3 +8,5 @@ export { ExecutionsPanel } from './ExecutionsPanel';
 export { NODE_PALETTE, STATUS_COLORS, getPaletteForType } from './workflow.constants';
 export type { NodePaletteEntry, ConnectorTriggerDef } from './workflow.constants';
 export type { WfNodeData, EditorWorkflow, RunLog, RunStep } from './workflow.types';
+export { BUILTIN_TEMPLATES, cloneTemplate, workflowHasAINode } from './workflow.templates';
+export type { WorkflowTemplate } from './workflow.templates';

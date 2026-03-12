@@ -12,7 +12,7 @@
 export type WorkflowNodeType =
   | 'trigger' | 'action' | 'llm' | 'decision' | 'transform'
   | 'human' | 'output' | 'parallel' | 'loop' | 'delay'
-  | 'httpRequest' | 'splitOut';
+  | 'httpRequest' | 'splitOut' | 'developer';
 
 // ─── Connector Trigger Definition (mirrors core/connector.ts) ───────────────
 
@@ -40,6 +40,7 @@ export const NODE_PALETTE = [
   { type: 'delay', label: 'Delay', icon: '⏱️', color: '#78716c', description: 'Wait/sleep' },
   { type: 'httpRequest', label: 'HTTP Request', icon: '🌐', color: '#2563eb', description: 'Make an HTTP request' },
   { type: 'splitOut', label: 'Split Out', icon: '⤴️', color: '#7c3aed', description: 'Split array into items' },
+  { type: 'developer', label: 'Developer Agent', icon: '👨‍💻', color: '#059669', description: 'AI agent with file tools (read, write, search, terminal)' },
 ] as const;
 
 export type NodePaletteEntry = typeof NODE_PALETTE[number];

@@ -34,9 +34,10 @@ import {
   KeyboardIcon,
   FolderIcon,
 } from './icons';
-import { isCliMode, getCliProviderId, type ChatMode } from '../types/ui.types';
+import { isCliMode, getCliProviderId, isWorkflowMode, type ChatMode } from '../types/ui.types';
 import { useAgentExecution } from '../context/AgentExecutionContext';
 import { useStreamingBridge } from '../context/StreamingBridgeContext';
+import { workflowHasAINode, type EditorWorkflow } from './workflow';
 
 interface ChatPanelProps {
   onCollapse?: () => void;
@@ -69,6 +70,9 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
   const [cliProviders, setCliProviders] = useState<CliProviderStatus[]>([]);
   const [cliModel, setCliModel] = useState<Record<CliProviderId, string>>({} as any);
   const [cliDetecting, setCliDetecting] = useState(false);
+
+  // ── Custom workflow modes (workflows with AI nodes) ──
+  const [workflowModes, setWorkflowModes] = useState<EditorWorkflow[]>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputBoxRef = useRef<HTMLDivElement>(null);
@@ -125,6 +129,25 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
     }).finally(() => {
       if (!cancelled) setCliDetecting(false);
     });
+    return () => { cancelled = true; };
+  }, [backend]);
+
+  // ── Load custom workflow modes (workflows with AI/LLM nodes) ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const allWfs = await backend.orchestratorListEditorWorkflows(folderPath || undefined) as EditorWorkflow[];
+        if (cancelled) return;
+        // Only include non-built-in workflows that have AI nodes
+        const aiWorkflows = allWfs.filter(wf =>
+          !wf.id.startsWith('builtin:') && workflowHasAINode(wf)
+        );
+        setWorkflowModes(aiWorkflows);
+      } catch {
+        if (!cancelled) setWorkflowModes([]);
+      }
+    })();
     return () => { cancelled = true; };
   }, [backend]);
 
@@ -329,6 +352,7 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
       agentExec.completeStep(inputStepId, { text });
     }
 
+    try {
     const ai = { baseUrl: settings.baseUrl, apiKey: settings.apiKey, model };
     let researchedFiles: Array<{ name: string; path: string; content?: string; searchContext?: string }> = [];
 
@@ -389,10 +413,29 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
 
     await streamResponse(settings.baseUrl, settings.apiKey, model, newHistory);
 
-    // Finish trace
+    // Finish trace — agent is done
     if (isAgentMode) {
       if (streamStepId) agentExec.completeStep(streamStepId, { status: 'streamed' }, { stopReason: 'end_turn' });
       agentExec.finishTrace('success');
+    }
+    } catch (pipelineErr: any) {
+      // Ensure the trace is properly finished even on error so it doesn't keep "running"
+      if (isAgentMode) {
+        agentExec.finishTrace('error');
+      }
+      setMessages(prev => {
+        const updated = [...prev];
+        if (updated.length > 0 && updated[updated.length - 1].sender === 'bot') {
+          updated[updated.length - 1] = {
+            text: `⚠️ Agent error: ${pipelineErr.message || 'Unknown error'}`,
+            sender: 'bot',
+          };
+        } else {
+          updated.push({ text: `⚠️ Agent error: ${pipelineErr.message || 'Unknown error'}`, sender: 'bot' });
+        }
+        return updated;
+      });
+      setLoading(false);
     }
   }, [
     input, loading, settings, selectedModel, history, attachedFiles, scrollToBottom,
@@ -569,7 +612,8 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
               <div className="composer-dropdown-wrap">
                 <button className="composer-dropdown-btn" onClick={() => setModeMenuOpen(p => !p)}>
                   {isCliMode(mode) && <span className="mode-copilot-dot" />}
-                  {isCliMode(mode) ? (activeProviderMeta?.shortName ?? mode) : mode} <span className="caret">▾</span>
+                  {isWorkflowMode(mode) && <span className="mode-copilot-dot" style={{ background: '#6366f1' }} />}
+                  {isCliMode(mode) ? (activeProviderMeta?.shortName ?? mode) : isWorkflowMode(mode) ? (workflowModes.find(w => `wf:${w.id}` === mode)?.name ?? 'Workflow') : mode} <span className="caret">▾</span>
                 </button>
                 {modeMenuOpen && (
                   <div className="composer-dropdown-menu grouped-mode-menu">
@@ -627,6 +671,26 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
                         {m}
                       </button>
                     ))}
+                    {/* ── Custom Workflow modes ── */}
+                    {workflowModes.length > 0 && (
+                      <>
+                        <div className="mode-group-divider" />
+                        <div className="mode-group-label">⚡ Workflows</div>
+                        {workflowModes.map(wf => {
+                          const wfMode = `wf:${wf.id}` as ChatMode;
+                          return (
+                            <button
+                              key={wf.id}
+                              className={`composer-dropdown-item ${wfMode === mode ? 'active' : ''}`}
+                              onClick={() => { setMode(wfMode); setModeMenuOpen(false); }}
+                            >
+                              <span className="mode-item-icon">⚡</span>
+                              {wf.name}
+                            </button>
+                          );
+                        })}
+                      </>
+                    )}
                   </div>
                 )}
               </div>

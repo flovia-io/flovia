@@ -56,8 +56,19 @@ import SaveIcon from '@mui/icons-material/Save';
 import SendIcon from '@mui/icons-material/Send';
 import ChatIcon from '@mui/icons-material/Chat';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import LockIcon from '@mui/icons-material/Lock';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemText from '@mui/material/ListItemText';
+import ListItemIcon from '@mui/material/ListItemIcon';
 
 import { useBackend } from '../context/BackendContext';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 import {
   WorkflowNode,
@@ -65,10 +76,14 @@ import {
   NodePaletteDrawer,
   ExecutionsPanel,
   getPaletteForType,
+  BUILTIN_TEMPLATES,
+  cloneTemplate,
+  workflowHasAINode,
   type WfNodeData,
   type EditorWorkflow,
   type RunLog,
   type NodePaletteEntry,
+  type WorkflowTemplate,
 } from './workflow';
 
 // ─── ReactFlow node type registration ───────────────────────────────────────
@@ -88,6 +103,7 @@ const genWorkflowId = () => `wf-${Date.now()}-${Math.random().toString(36).slice
 
 export default function WorkflowEditor() {
   const backend = useBackend();
+  const { folderPath } = useWorkspace();
 
   // State
   const [workflows, setWorkflows] = useState<EditorWorkflow[]>([]);
@@ -104,7 +120,12 @@ export default function WorkflowEditor() {
   const [chatInput, setChatInput] = useState('');
   const chatInputRef = useRef<HTMLInputElement>(null);
 
+  const [templateBrowserOpen, setTemplateBrowserOpen] = useState(false);
+
   const activeWorkflow = workflows.find(w => w.id === activeWorkflowId);
+
+  // Is the active workflow a built-in (read-only)?
+  const isBuiltIn = activeWorkflowId?.startsWith('builtin:') ?? false;
 
   // Check if current workflow has a chat-input trigger
   const hasChatTrigger = useMemo(() =>
@@ -112,16 +133,22 @@ export default function WorkflowEditor() {
     [nodes]
   );
 
-  // ── Load workflows on mount ──
+  // ── Load workflows on mount (merge built-ins + saved) ──
   useEffect(() => {
     (async () => {
       try {
-        const saved = await backend.orchestratorListEditorWorkflows() as EditorWorkflow[];
-        setWorkflows(saved);
-        if (saved.length > 0) {
-          setActiveWorkflowId(saved[0].id);
-          setNodes(saved[0].nodes);
-          setEdges(saved[0].edges);
+        const saved = await backend.orchestratorListEditorWorkflows(folderPath || undefined) as EditorWorkflow[];
+        // Merge built-in template workflows (if not already overridden by a saved one)
+        const builtInWfs = BUILTIN_TEMPLATES.map(t => t.workflow);
+        const merged = [
+          ...builtInWfs.filter(bw => !saved.some(s => s.id === bw.id)),
+          ...saved,
+        ];
+        setWorkflows(merged);
+        if (merged.length > 0) {
+          setActiveWorkflowId(merged[0].id);
+          setNodes(merged[0].nodes);
+          setEdges(merged[0].edges);
         }
       } catch { /* ignore */ }
     })();
@@ -212,11 +239,12 @@ export default function WorkflowEditor() {
     setActiveWorkflowId(id);
     setNodes([triggerNode]);
     setEdges([]);
-    await backend.orchestratorSaveEditorWorkflow(wf);
-  }, [workflows, backend]);
+    await backend.orchestratorSaveEditorWorkflow(wf, folderPath || undefined);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [workflows, backend, folderPath]);
 
   const saveWorkflow = useCallback(async () => {
-    if (!activeWorkflowId) return;
+    if (!activeWorkflowId || isBuiltIn) return;
     const wf: EditorWorkflow = {
       id: activeWorkflowId,
       name: activeWorkflow?.name || 'Untitled',
@@ -227,17 +255,38 @@ export default function WorkflowEditor() {
       updatedAt: new Date().toISOString(),
     };
     setWorkflows(prev => prev.map(w => w.id === activeWorkflowId ? wf : w));
-    await backend.orchestratorSaveEditorWorkflow(wf);
-  }, [activeWorkflowId, activeWorkflow, nodes, edges, backend]);
+    await backend.orchestratorSaveEditorWorkflow(wf, folderPath || undefined);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [activeWorkflowId, activeWorkflow, nodes, edges, backend, isBuiltIn, folderPath]);
 
   const deleteWorkflow = useCallback(async () => {
-    if (!activeWorkflowId) return;
+    if (!activeWorkflowId || isBuiltIn) return;
     setWorkflows(prev => prev.filter(w => w.id !== activeWorkflowId));
     await backend.orchestratorDeleteEditorWorkflow(activeWorkflowId);
     setActiveWorkflowId(workflows.length > 1 ? workflows.find(w => w.id !== activeWorkflowId)?.id || null : null);
     setNodes([]);
     setEdges([]);
-  }, [activeWorkflowId, workflows, backend]);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [activeWorkflowId, workflows, backend, isBuiltIn]);
+
+  // ── Clone a built-in template into a new editable workflow ──
+
+  const handleCloneTemplate = useCallback(async (template: WorkflowTemplate) => {
+    const cloned = cloneTemplate(template);
+    setWorkflows(prev => [...prev, cloned]);
+    setActiveWorkflowId(cloned.id);
+    setNodes(cloned.nodes);
+    setEdges(cloned.edges);
+    await backend.orchestratorSaveEditorWorkflow(cloned, folderPath || undefined);
+    setTemplateBrowserOpen(false);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [backend, folderPath]);
+
+  const handleCloneCurrentBuiltIn = useCallback(async () => {
+    if (!isBuiltIn || !activeWorkflowId) return;
+    const template = BUILTIN_TEMPLATES.find(t => t.id === activeWorkflowId);
+    if (template) await handleCloneTemplate(template);
+  }, [isBuiltIn, activeWorkflowId, handleCloneTemplate]);
 
   // ── Add / Delete / Update nodes ──
 
@@ -376,16 +425,49 @@ export default function WorkflowEditor() {
             }}
           >
             {workflows.map(w => (
-              <MenuItem key={w.id} value={w.id}>{w.name}</MenuItem>
+              <MenuItem key={w.id} value={w.id}>
+                {w.id.startsWith('builtin:') && <LockIcon sx={{ fontSize: 14, mr: 0.5, opacity: 0.5 }} />}
+                {w.name}
+              </MenuItem>
             ))}
           </Select>
         </FormControl>
+
+        {/* Built-in badge + Clone button */}
+        {isBuiltIn && (
+          <>
+            <Chip
+              icon={<LockIcon sx={{ fontSize: 14 }} />}
+              label="Built-in"
+              size="small"
+              variant="outlined"
+              color="info"
+              sx={{ height: 24, fontSize: 11, fontWeight: 600 }}
+            />
+            <Tooltip title="Clone as editable workflow">
+              <Button
+                size="small"
+                startIcon={<ContentCopyIcon />}
+                onClick={handleCloneCurrentBuiltIn}
+                variant="outlined"
+                color="info"
+                sx={{ borderRadius: 6, fontSize: 11, textTransform: 'none' }}
+              >
+                Clone
+              </Button>
+            </Tooltip>
+          </>
+        )}
 
         <Tooltip title="New Workflow">
           <IconButton size="small" onClick={createWorkflow}><AddIcon /></IconButton>
         </Tooltip>
 
-        {activeWorkflowId && (
+        <Tooltip title="Browse Templates">
+          <IconButton size="small" onClick={() => setTemplateBrowserOpen(true)}><DashboardIcon /></IconButton>
+        </Tooltip>
+
+        {activeWorkflowId && !isBuiltIn && (
           <Tooltip title="Delete Workflow">
             <IconButton size="small" color="error" onClick={deleteWorkflow}><DeleteIcon /></IconButton>
           </Tooltip>
@@ -411,9 +493,17 @@ export default function WorkflowEditor() {
 
         <Box sx={{ flex: 1 }} />
 
-        <Button size="small" startIcon={<SaveIcon />} onClick={saveWorkflow} variant="outlined" sx={{ borderRadius: 6 }}>
-          Save
-        </Button>
+        {isBuiltIn ? (
+          <Tooltip title="Clone this built-in to edit">
+            <Button size="small" startIcon={<ContentCopyIcon />} onClick={handleCloneCurrentBuiltIn} variant="outlined" sx={{ borderRadius: 6 }}>
+              Clone to Edit
+            </Button>
+          </Tooltip>
+        ) : (
+          <Button size="small" startIcon={<SaveIcon />} onClick={saveWorkflow} variant="outlined" sx={{ borderRadius: 6 }}>
+            Save
+          </Button>
+        )}
         <Button
           size="small"
           startIcon={executing ? <StopIcon /> : <PlayArrowIcon />}
@@ -563,6 +653,99 @@ export default function WorkflowEditor() {
           onSelectRun={setActiveRunId}
         />
       )}
+
+      {/* ── Read-only banner for built-in workflows ── */}
+      {isBuiltIn && activeTab === 'editor' && (
+        <Paper
+          elevation={2}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1.5,
+            px: 2,
+            py: 0.75,
+            bgcolor: '#fffbeb',
+            borderTop: '2px solid #f59e0b',
+          }}
+        >
+          <LockIcon sx={{ fontSize: 16, color: '#b45309' }} />
+          <Typography variant="caption" sx={{ color: '#92400e', fontWeight: 600 }}>
+            This is a built-in template (read-only).
+          </Typography>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<ContentCopyIcon />}
+            onClick={handleCloneCurrentBuiltIn}
+            sx={{
+              borderRadius: 6,
+              textTransform: 'none',
+              fontSize: 11,
+              bgcolor: '#f59e0b',
+              color: '#fff',
+              '&:hover': { bgcolor: '#d97706' },
+            }}
+          >
+            Clone to customize
+          </Button>
+        </Paper>
+      )}
+
+      {/* ── Template Browser Dialog ── */}
+      <Dialog
+        open={templateBrowserOpen}
+        onClose={() => setTemplateBrowserOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DashboardIcon sx={{ color: 'primary.main' }} />
+          Workflow Templates
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Start from a built-in template. Cloned workflows are fully editable and will appear as chat modes if they contain an AI node.
+          </Typography>
+          <List disablePadding>
+            {BUILTIN_TEMPLATES.map(template => (
+              <ListItemButton
+                key={template.id}
+                onClick={() => handleCloneTemplate(template)}
+                sx={{
+                  borderRadius: 2,
+                  mb: 1,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 40, fontSize: 24 }}>
+                  {template.icon}
+                </ListItemIcon>
+                <ListItemText
+                  primary={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography fontWeight={600}>{template.name}</Typography>
+                      {template.chatMode && (
+                        <Chip
+                          label={`Chat mode: ${template.chatMode}`}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: 10 }}
+                        />
+                      )}
+                    </Box>
+                  }
+                  secondary={template.description}
+                />
+                <ContentCopyIcon sx={{ color: 'text.secondary', fontSize: 18, ml: 1 }} />
+              </ListItemButton>
+            ))}
+          </List>
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }

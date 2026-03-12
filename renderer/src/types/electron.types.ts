@@ -179,8 +179,8 @@ export interface ElectronAPI {
   orchestratorGetEventHistory: (filter?: Record<string, string>) => Promise<unknown[]>;
   onOrchestratorEvent: (cb: (event: unknown) => void) => () => void;
   // Visual Workflow Editor
-  orchestratorSaveEditorWorkflow: (data: unknown) => Promise<{ success: boolean }>;
-  orchestratorListEditorWorkflows: () => Promise<unknown[]>;
+  orchestratorSaveEditorWorkflow: (data: unknown, workspacePath?: string) => Promise<{ success: boolean }>;
+  orchestratorListEditorWorkflows: (workspacePath?: string) => Promise<unknown[]>;
   orchestratorDeleteEditorWorkflow: (workflowId: string) => Promise<{ success: boolean }>;
   // Workflow Execution
   orchestratorExecuteWorkflow: (workflowData: { id: string; name: string; nodes: unknown[]; edges: unknown[]; triggerInput?: unknown }) => Promise<{ success: boolean; run?: unknown }>;

@@ -192,8 +192,8 @@ export function createElectronAdapter(): BackendAPI {
     onOrchestratorEvent: (cb) => api.onOrchestratorEvent(cb),
 
     // ── Visual Workflow Editor ──
-    orchestratorSaveEditorWorkflow: (d) => api.orchestratorSaveEditorWorkflow(d),
-    orchestratorListEditorWorkflows: () => api.orchestratorListEditorWorkflows(),
+    orchestratorSaveEditorWorkflow: (d: unknown, workspacePath?: string) => api.orchestratorSaveEditorWorkflow(d, workspacePath),
+    orchestratorListEditorWorkflows: (workspacePath?: string) => api.orchestratorListEditorWorkflows(workspacePath),
     orchestratorDeleteEditorWorkflow: (id) => api.orchestratorDeleteEditorWorkflow(id),
 
     // ── Workflow Execution ──

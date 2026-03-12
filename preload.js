@@ -209,8 +209,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Visual Workflow Editor
-  orchestratorSaveEditorWorkflow: (data) => ipcRenderer.invoke('orchestrator-save-editor-workflow', data),
-  orchestratorListEditorWorkflows: () => ipcRenderer.invoke('orchestrator-list-editor-workflows'),
+  orchestratorSaveEditorWorkflow: (data, workspacePath) => ipcRenderer.invoke('orchestrator-save-editor-workflow', data, workspacePath),
+  orchestratorListEditorWorkflows: (workspacePath) => ipcRenderer.invoke('orchestrator-list-editor-workflows', workspacePath),
   orchestratorDeleteEditorWorkflow: (workflowId) => ipcRenderer.invoke('orchestrator-delete-editor-workflow', workflowId),
 
   // Workflow Execution

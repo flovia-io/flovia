@@ -2,6 +2,7 @@
  * Sidebar - Main sidebar container that switches between different panels
  * 
  * Refactored to use Material UI components.
+ * Explorer panel is split: File Tree (top) + Workflow List (bottom).
  */
 import { Box, Typography, Button, IconButton, Tooltip, Chip } from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -21,6 +22,7 @@ import CliProvidersPanel from './CliProvidersPanel';
 import GmailPanel from './GmailPanel';
 import DigitalOceanPanel from './DigitalOceanPanel';
 import ExplorerGitControls from './ExplorerGitControls';
+import WorkflowListPanel from './WorkflowListPanel';
 import { Panel, PanelHeader } from './mui';
 
 interface SidebarProps {
@@ -126,9 +128,17 @@ export default function Sidebar({ onCollapse }: SidebarProps) {
       {/* Git controls */}
       <ExplorerGitControls />
 
-      {/* File tree */}
-      <Box sx={{ flex: 1, overflow: 'auto', py: 0.5 }}>
-        <FileTree items={tree} depth={0} folderPath={folderPath || undefined} />
+      {/* Split view: File Tree (top half) + Workflow List (bottom half) */}
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* File tree — top half */}
+        <Box sx={{ flex: 1, overflow: 'auto', py: 0.5, minHeight: 0 }}>
+          <FileTree items={tree} depth={0} folderPath={folderPath || undefined} />
+        </Box>
+
+        {/* Workflow list — bottom half */}
+        <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+          <WorkflowListPanel />
+        </Box>
       </Box>
     </Panel>
   );

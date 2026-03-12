@@ -131,6 +131,18 @@ export function useAgentTrace() {
         totalDurationMs: Date.now() - new Date(t.startedAt).getTime(),
       };
 
+      // Also mark any still-running steps as completed/failed
+      finished.steps = finished.steps.map(s =>
+        s.status === 'running'
+          ? {
+              ...s,
+              status: (status === 'success' ? 'success' : 'error') as TraceStepStatus,
+              durationMs: s.durationMs ?? (Date.now() - new Date(s.timestamp).getTime()),
+              ...(status === 'error' ? { error: 'Agent run stopped' } : {}),
+            }
+          : s
+      );
+
       // Bridge: update execution run with final status & steps
       backend.orchestratorSaveRun({
         id: finished.id,
@@ -154,6 +166,16 @@ export function useAgentTrace() {
     }));
   }, [backend]);
 
+  /** Clear all traces (optionally finishing any running trace first) */
+  const clearTraces = useCallback(() => {
+    // If there's a running trace, finish it first
+    if (traceRef.current) {
+      finishTrace('error');
+    }
+    setTraces([]);
+    setActiveTraceId(null);
+  }, [finishTrace]);
+
   return {
     traces,
     activeTrace,
@@ -165,5 +187,6 @@ export function useAgentTrace() {
     completeStep,
     failStep,
     finishTrace,
+    clearTraces,
   };
 }

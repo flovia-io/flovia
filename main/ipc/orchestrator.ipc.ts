@@ -96,15 +96,52 @@ export function registerOrchestratorIpc(): void {
 
   // ── Visual Workflow Editor (persist editor-specific workflow data) ──
 
-  ipcMain.handle('orchestrator-save-editor-workflow', async (_event, editorData: unknown) => {
+  ipcMain.handle('orchestrator-save-editor-workflow', async (_event, editorData: unknown, workspacePath?: string) => {
     const all = await storage.readJSON<Array<{ id: string }>>('editor-workflows', []);
     const data = editorData as { id: string };
     await storage.writeJSON('editor-workflows', upsertById(all, data));
+
+    // Also save as JSON in workspace if a workspace path is provided
+    if (workspacePath) {
+      try {
+        const fs = await import('fs');
+        const path = await import('path');
+        const wfDir = path.join(workspacePath, '.flovia', 'workflows');
+        fs.mkdirSync(wfDir, { recursive: true });
+        const filePath = path.join(wfDir, `${data.id}.json`);
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      } catch (err) {
+        console.error('[Orchestrator] Failed to save workflow JSON to workspace:', err);
+      }
+    }
+
     return { success: true };
   });
 
-  ipcMain.handle('orchestrator-list-editor-workflows', async () => {
-    return storage.readJSON<unknown[]>('editor-workflows', []);
+  ipcMain.handle('orchestrator-list-editor-workflows', async (_event, workspacePath?: string) => {
+    const stored = await storage.readJSON<unknown[]>('editor-workflows', []);
+
+    // Also scan workspace .flovia/workflows/ for local JSON files
+    if (workspacePath) {
+      try {
+        const fs = await import('fs');
+        const pathMod = await import('path');
+        const wfDir = pathMod.join(workspacePath, '.flovia', 'workflows');
+        if (fs.existsSync(wfDir)) {
+          const files = fs.readdirSync(wfDir).filter((f: string) => f.endsWith('.json'));
+          for (const file of files) {
+            try {
+              const raw = JSON.parse(fs.readFileSync(pathMod.join(wfDir, file), 'utf-8'));
+              if (raw && raw.id && !stored.some((s: any) => s.id === raw.id)) {
+                stored.push(raw);
+              }
+            } catch { /* skip invalid files */ }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    return stored;
   });
 
   ipcMain.handle('orchestrator-delete-editor-workflow', async (_event, workflowId: string) => {

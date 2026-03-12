@@ -273,8 +273,8 @@ export interface BackendAPI {
   onOrchestratorEvent(cb: (event: unknown) => void): Unsubscribe;
 
   // ── Visual Workflow Editor ──
-  orchestratorSaveEditorWorkflow(data: unknown): Promise<{ success: boolean }>;
-  orchestratorListEditorWorkflows(): Promise<unknown[]>;
+  orchestratorSaveEditorWorkflow(data: unknown, workspacePath?: string): Promise<{ success: boolean }>;
+  orchestratorListEditorWorkflows(workspacePath?: string): Promise<unknown[]>;
   orchestratorDeleteEditorWorkflow(workflowId: string): Promise<{ success: boolean }>;
 
   // ── Workflow Execution ──

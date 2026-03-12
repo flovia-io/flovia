@@ -605,6 +605,9 @@ export default function StartPageChat({ importFolder, onWorkspaceCreated }: Star
             <div className="start-page-chat-welcome-actions">
               <button className="btn-import" onClick={importFolder}>📂 Import a Project</button>
               <GitHubClone />
+              <button className="btn-workflow" onClick={() => {
+                window.dispatchEvent(new CustomEvent('create-workflow-onboarding'));
+              }}>⚡ Create a Workflow</button>
             </div>
             <div className="start-page-chat-divider">
               <span>or start a conversation</span>

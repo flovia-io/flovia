@@ -1,0 +1,125 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# ── Shared env ──────────────────────────────────────────────────
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  # ── Determine the artifact label (tag name or short SHA) ──────
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.label.outputs.value }}
+    steps:
+      - name: Compute label
+        id: label
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── macOS build (universal – Intel + Apple Silicon) ───────────
+  build-mac:
+    needs: meta
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Python setuptools (provides distutils for node-gyp)
+        run: pip3 install --break-system-packages setuptools
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild
+
+      - name: Build macOS DMG (universal)
+        run: npm run build:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # skip code-signing in CI
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flovia-mac-${{ needs.meta.outputs.label }}
+          path: |
+            dist/*.dmg
+          if-no-files-found: error
+
+  # ── Windows build (x64 .exe installer) ───────────────────────
+  build-win:
+    needs: meta
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Python setuptools (provides distutils for node-gyp)
+        run: pip install setuptools
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild
+
+      - name: Build Windows installer
+        run: npm run build:win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flovia-win-x64-${{ needs.meta.outputs.label }}
+          path: |
+            dist/*.exe
+          if-no-files-found: error
+
+  # ── Linux build (x64 AppImage) ───────────────────────────────
+  build-linux:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Python setuptools (provides distutils for node-gyp)
+        run: pip3 install --break-system-packages setuptools
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild
+
+      - name: Build Linux AppImage
+        run: npm run build:linux
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flovia-linux-x64-${{ needs.meta.outputs.label }}
+          path: |
+            dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 0

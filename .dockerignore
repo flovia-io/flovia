@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-main
+dist-cli
+dist-server
+renderer/dist
+.git
+*.dmg
+*.AppImage
+*.exe
+.DS_Store

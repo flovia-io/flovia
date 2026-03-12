@@ -38,6 +38,7 @@ export function registerConnectorIpcHandlers(): void {
       metadata: connector.metadata,
       configFields: connector.configFields,
       actions: connector.actions,
+      triggers: connector.triggers || [],
       state: registry.getState(connectorId),
     };
   });

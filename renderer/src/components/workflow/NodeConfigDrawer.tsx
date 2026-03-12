@@ -29,8 +29,13 @@ import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
+import Checkbox from '@mui/material/Checkbox';
+import ListItemText from '@mui/material/ListItemText';
+import ListSubheader from '@mui/material/ListSubheader';
+
 import { useBackend } from '../../context/BackendContext';
 import type { WfNodeData } from './workflow.types';
+import type { ConnectorTriggerDef } from './workflow.constants';
 
 interface Props {
   open: boolean;
@@ -280,28 +285,212 @@ interface ConfigProps {
 }
 
 function TriggerConfig({ node, cfg, onUpdate }: ConfigProps) {
+  const backend = useBackend();
+  const [connectorTriggers, setConnectorTriggers] = useState<ConnectorTriggerDef[]>([]);
+
+  // Fetch connector triggers on mount
+  useEffect(() => {
+    if (node.data.nodeType !== 'trigger') return;
+    (async () => {
+      try {
+        const connectors = await backend.connectorList();
+        const triggers: ConnectorTriggerDef[] = [];
+        for (const c of connectors) {
+          try {
+            const detail = await backend.connectorGet(c.id);
+            if (detail?.triggers) {
+              for (const t of detail.triggers as any[]) {
+                triggers.push({
+                  connectorId: c.id,
+                  connectorName: c.name,
+                  connectorIcon: c.icon,
+                  triggerId: t.id,
+                  triggerName: t.name,
+                  triggerDescription: t.description,
+                  events: t.events || [],
+                  inputFields: t.inputFields || [],
+                });
+              }
+            }
+          } catch { /* skip connector */ }
+        }
+        setConnectorTriggers(triggers);
+      } catch { /* ignore */ }
+    })();
+  }, [backend, node.data.nodeType]);
+
   if (node.data.nodeType !== 'trigger') return null;
+
+  const triggerType = (cfg.triggerType as string) || 'manual';
+  const isConnectorTrigger = triggerType.startsWith('connector:');
+  const selectedConnectorTrigger = isConnectorTrigger
+    ? connectorTriggers.find(ct => `connector:${ct.connectorId}:${ct.triggerId}` === triggerType)
+    : null;
+  const selectedEvents = (cfg.events as string[]) || [];
+
   return (
-    <FormControl size="small" fullWidth sx={{ mb: 2 }}>
-      <InputLabel>Trigger Type</InputLabel>
-      <Select
-        value={(cfg.triggerType as string) || 'manual'}
-        label="Trigger Type"
-        onChange={(e) => onUpdate(node.id, {
-          config: { ...cfg, triggerType: e.target.value },
-          subtitle: e.target.value as string,
-        })}
-      >
-        <MenuItem value="manual">Manual</MenuItem>
-        <MenuItem value="schedule">Schedule (Cron)</MenuItem>
-        <MenuItem value="webhook">Webhook</MenuItem>
-        <MenuItem value="event">Event</MenuItem>
-        <MenuItem value="on-chat">On Chat Message</MenuItem>
-        <MenuItem value="on-commit">On Git Commit</MenuItem>
-        <MenuItem value="chat-input">Chat Input (interactive)</MenuItem>
-      </Select>
-    </FormControl>
+    <>
+      {/* Trigger Type Selector */}
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Trigger Type</InputLabel>
+        <Select
+          value={triggerType}
+          label="Trigger Type"
+          onChange={(e) => {
+            const val = e.target.value as string;
+            const ct = connectorTriggers.find(ct => `connector:${ct.connectorId}:${ct.triggerId}` === val);
+            onUpdate(node.id, {
+              config: { triggerType: val, events: [], ...(ct ? { connectorId: ct.connectorId, triggerId: ct.triggerId } : {}) },
+              label: ct ? ct.triggerName : node.data.label,
+              icon: ct ? getConnectorEmoji(ct.connectorId) : '⚡',
+              subtitle: ct ? `${ct.connectorName}: ${ct.triggerDescription}` : val,
+            });
+          }}
+        >
+          <ListSubheader>Built-in</ListSubheader>
+          <MenuItem value="manual">⚡ Manual</MenuItem>
+          <MenuItem value="schedule">🕐 Schedule (Cron)</MenuItem>
+          <MenuItem value="webhook">🔗 Webhook</MenuItem>
+          <MenuItem value="event">📡 Event</MenuItem>
+          <MenuItem value="on-chat">💬 On Chat Message</MenuItem>
+          <MenuItem value="on-commit">📝 On Git Commit</MenuItem>
+          <MenuItem value="chat-input">🗨️ Chat Input (interactive)</MenuItem>
+
+          {connectorTriggers.length > 0 && <ListSubheader>Connector Triggers</ListSubheader>}
+          {connectorTriggers.map(ct => (
+            <MenuItem key={`connector:${ct.connectorId}:${ct.triggerId}`} value={`connector:${ct.connectorId}:${ct.triggerId}`}>
+              {getConnectorEmoji(ct.connectorId)} {ct.triggerName}
+              <Typography variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
+                ({ct.connectorName})
+              </Typography>
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      {/* Schedule-specific: cron expression */}
+      {triggerType === 'schedule' && (
+        <TextField
+          label="Cron Expression"
+          size="small"
+          fullWidth
+          value={(cfg.schedule as string) || ''}
+          onChange={(e) => onUpdate(node.id, { config: { ...cfg, schedule: e.target.value } })}
+          placeholder="*/5 * * * *"
+          helperText="e.g. */5 * * * * (every 5 minutes)"
+          sx={{ mb: 2 }}
+        />
+      )}
+
+      {/* Webhook-specific: path */}
+      {triggerType === 'webhook' && (
+        <TextField
+          label="Webhook Path"
+          size="small"
+          fullWidth
+          value={(cfg.webhookPath as string) || ''}
+          onChange={(e) => onUpdate(node.id, { config: { ...cfg, webhookPath: e.target.value } })}
+          placeholder="/hooks/my-workflow"
+          sx={{ mb: 2 }}
+        />
+      )}
+
+      {/* ── Connector Trigger Config ── */}
+      {selectedConnectorTrigger && (
+        <>
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="caption" fontWeight={700} sx={{ mb: 1, display: 'block', color: 'text.secondary' }}>
+            {selectedConnectorTrigger.connectorName} — {selectedConnectorTrigger.triggerName}
+          </Typography>
+
+          {/* Input fields (owner, repository, etc.) */}
+          {selectedConnectorTrigger.inputFields?.map(field => (
+            <TextField
+              key={field.key}
+              label={`${field.label}${field.required ? ' *' : ''}`}
+              size="small"
+              fullWidth
+              value={(cfg[field.key] as string) || ''}
+              onChange={(e) => onUpdate(node.id, {
+                config: { ...cfg, [field.key]: e.target.value },
+                subtitle: buildTriggerSubtitle(cfg, selectedConnectorTrigger, { ...cfg, [field.key]: e.target.value }),
+              })}
+              placeholder={field.placeholder || ''}
+              helperText={field.helpText}
+              sx={{ mb: 1.5 }}
+            />
+          ))}
+
+          {/* Event multi-select */}
+          <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+            <InputLabel>Events</InputLabel>
+            <Select
+              multiple
+              value={selectedEvents}
+              label="Events"
+              onChange={(e) => {
+                const val = e.target.value as string[];
+                onUpdate(node.id, {
+                  config: { ...cfg, events: val },
+                  subtitle: buildTriggerSubtitle(cfg, selectedConnectorTrigger, { ...cfg, events: val }),
+                });
+              }}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {(selected as string[]).map(v => {
+                    const ev = selectedConnectorTrigger.events.find(e => e.value === v);
+                    return <Chip key={v} label={ev?.label || v} size="small" sx={{ height: 20, fontSize: 10 }} />;
+                  })}
+                </Box>
+              )}
+            >
+              {selectedConnectorTrigger.events.map(ev => (
+                <MenuItem key={ev.value} value={ev.value}>
+                  <Checkbox checked={selectedEvents.includes(ev.value)} size="small" />
+                  <ListItemText
+                    primary={ev.label}
+                    secondary={ev.description}
+                    primaryTypographyProps={{ variant: 'body2' }}
+                    secondaryTypographyProps={{ variant: 'caption' }}
+                  />
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </>
+      )}
+    </>
   );
+}
+
+/** Map connector IDs to emoji icons for the trigger selector */
+function getConnectorEmoji(connectorId: string): string {
+  const map: Record<string, string> = {
+    github: '🐙',
+    atlassian: '🔷',
+    supabase: '⚡',
+    gmail: '📧',
+    digitalocean: '🌊',
+  };
+  return map[connectorId] || '🔌';
+}
+
+/** Build a subtitle string like "flovia-io/flovia: check_run" */
+function buildTriggerSubtitle(
+  cfg: Record<string, unknown>,
+  ct: ConnectorTriggerDef,
+  updated: Record<string, unknown>,
+): string {
+  const parts: string[] = [];
+  const owner = (updated.owner as string) || (cfg.owner as string);
+  const repo = (updated.repository as string) || (cfg.repository as string);
+  if (owner && repo) parts.push(`${owner}/${repo}`);
+  else if (owner) parts.push(owner);
+
+  const events = (updated.events as string[]) || (cfg.events as string[]) || [];
+  if (events.length > 0) parts.push(events.join(', '));
+
+  return parts.length > 0 ? `${ct.connectorName}: ${parts.join(': ')}` : ct.triggerDescription;
 }
 
 function HttpRequestConfig({ node, cfg, onUpdate }: ConfigProps) {

@@ -5,11 +5,56 @@
  * Exposes GitHub Actions, Issues, and repo operations.
  */
 
-import type { Connector, ConnectorActionResult } from '@flovia/core/connector';
+import type { Connector, ConnectorActionResult, ConnectorTrigger } from '@flovia/core/connector';
 
 export interface GitHubConnectorConfig {
   token: string;
 }
+
+// ─── GitHub Triggers ────────────────────────────────────────────────────────
+
+const githubTriggers: ConnectorTrigger[] = [
+  {
+    id: 'github-trigger',
+    name: 'GitHub Trigger',
+    description: 'Trigger workflow on GitHub repository events',
+    events: [
+      { value: 'check_run', label: 'Check Run', description: 'A check run is created, completed, or rerequested' },
+      { value: 'check_suite', label: 'Check Suite', description: 'A check suite is completed, requested, or rerequested' },
+      { value: 'push', label: 'Push', description: 'Commits pushed to a branch' },
+      { value: 'pull_request', label: 'Pull Request', description: 'A pull request is opened, closed, merged, or synchronized' },
+      { value: 'pull_request_review', label: 'Pull Request Review', description: 'A pull request review is submitted' },
+      { value: 'issues', label: 'Issues', description: 'An issue is opened, edited, closed, etc.' },
+      { value: 'issue_comment', label: 'Issue Comment', description: 'A comment is created on an issue or PR' },
+      { value: 'create', label: 'Create', description: 'A branch or tag is created' },
+      { value: 'delete', label: 'Delete', description: 'A branch or tag is deleted' },
+      { value: 'release', label: 'Release', description: 'A release is published, edited, or deleted' },
+      { value: 'workflow_run', label: 'Workflow Run', description: 'A GitHub Actions workflow run is requested or completed' },
+      { value: 'deployment', label: 'Deployment', description: 'A deployment is created' },
+      { value: 'deployment_status', label: 'Deployment Status', description: 'A deployment status changes' },
+      { value: 'fork', label: 'Fork', description: 'A repository is forked' },
+      { value: 'star', label: 'Star', description: 'A repository is starred or unstarred' },
+    ],
+    inputFields: [
+      {
+        key: 'owner',
+        label: 'Repository Owner',
+        type: 'text',
+        placeholder: 'flovia-io',
+        required: true,
+        helpText: 'GitHub user or organization that owns the repo',
+      },
+      {
+        key: 'repository',
+        label: 'Repository',
+        type: 'text',
+        placeholder: 'flovia',
+        required: true,
+        helpText: 'Repository name',
+      },
+    ],
+  },
+];
 
 export const githubConnector: Connector<GitHubConnectorConfig> = {
   metadata: {
@@ -31,6 +76,8 @@ export const githubConnector: Connector<GitHubConnectorConfig> = {
       helpText: 'A GitHub PAT with repo and workflow scopes. Or set GITHUB_TOKEN env var.',
     },
   ],
+
+  triggers: githubTriggers,
 
   actions: [
     { id: 'extract-repo-info', name: 'Extract Repo Info', description: 'Parse owner/repo from a git remote URL' },

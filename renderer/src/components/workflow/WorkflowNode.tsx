@@ -9,6 +9,7 @@ import Chip from '@mui/material/Chip';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
+import PushPinIcon from '@mui/icons-material/PushPin';
 
 import { STATUS_COLORS, getPaletteForType } from './workflow.constants';
 import type { WfNodeData } from './workflow.types';
@@ -72,6 +73,7 @@ export function WorkflowNode({ data, selected }: NodeProps<Node<WfNodeData>>) {
         {isCompleted && <CheckCircleIcon sx={{ fontSize: 18, color: '#22c55e' }} />}
         {isFailed && <ErrorIcon sx={{ fontSize: 18, color: '#ef4444' }} />}
         {isRunning && <HourglassEmptyIcon sx={{ fontSize: 18, color: '#3b82f6', animation: 'spin 1s infinite' }} />}
+        {data.pinnedData != null && <PushPinIcon sx={{ fontSize: 14, color: '#8b5cf6', ml: -0.5 }} />}
       </Box>
 
       {/* Footer — item count & duration */}

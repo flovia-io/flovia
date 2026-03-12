@@ -4,13 +4,39 @@
  * Wraps the existing Atlassian integration as a Connector plugin.
  */
 
-import type { Connector, ConnectorActionResult } from '@flovia/core/connector';
+import type { Connector, ConnectorActionResult, ConnectorTrigger } from '@flovia/core/connector';
 
 export interface AtlassianConnectorConfig {
   domain: string;
   email: string;
   apiToken: string;
 }
+
+const atlassianTriggers: ConnectorTrigger[] = [
+  {
+    id: 'jira-trigger',
+    name: 'Jira Trigger',
+    description: 'Trigger workflow on Jira events',
+    events: [
+      { value: 'jira:issue_created', label: 'Issue Created', description: 'A new Jira issue is created' },
+      { value: 'jira:issue_updated', label: 'Issue Updated', description: 'A Jira issue is updated' },
+      { value: 'jira:issue_deleted', label: 'Issue Deleted', description: 'A Jira issue is deleted' },
+      { value: 'comment_created', label: 'Comment Created', description: 'A comment is added to an issue' },
+      { value: 'sprint_started', label: 'Sprint Started', description: 'A sprint has started' },
+      { value: 'sprint_closed', label: 'Sprint Closed', description: 'A sprint has been closed' },
+    ],
+    inputFields: [
+      {
+        key: 'projectKey',
+        label: 'Project Key',
+        type: 'text',
+        placeholder: 'PROJ',
+        required: false,
+        helpText: 'Filter events to a specific project (optional)',
+      },
+    ],
+  },
+];
 
 export const atlassianConnector: Connector<AtlassianConnectorConfig> = {
   metadata: {
@@ -46,6 +72,8 @@ export const atlassianConnector: Connector<AtlassianConnectorConfig> = {
       helpText: 'Generate at https://id.atlassian.com/manage-profile/security/api-tokens',
     },
   ],
+
+  triggers: atlassianTriggers,
 
   actions: [
     { id: 'test-connection', name: 'Test Connection', description: 'Verify credentials are valid' },

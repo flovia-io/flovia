@@ -16,6 +16,8 @@ export interface WfNodeData {
   durationMs?: number;
   output?: unknown;
   error?: string;
+  /** Pinned data — fixed input for testing (like n8n pinData) */
+  pinnedData?: unknown;
   [key: string]: unknown;
 }
 

@@ -19,7 +19,7 @@ export type WorkflowNodeType =
   | 'loop'          // Iterate over items
   | 'delay';        // Wait/sleep node
 
-export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'event' | 'on-chat' | 'on-commit';
+export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'event' | 'on-chat' | 'on-commit' | 'chat-input' | `connector:${string}`;
 
 export interface WorkflowEditorNode {
   id: string;
@@ -63,6 +63,18 @@ export interface TriggerNodeConfig {
   webhookPath?: string;
   /** Event name for event triggers */
   eventName?: string;
+  /** Connector ID (for connector triggers, e.g. 'github') */
+  connectorId?: string;
+  /** Trigger ID (for connector triggers, e.g. 'github-trigger') */
+  triggerId?: string;
+  /** Owner/org — used by connector triggers like GitHub */
+  owner?: string;
+  /** Repository — used by connector triggers like GitHub */
+  repository?: string;
+  /** Events subscribed to (e.g. ['check_run', 'push']) */
+  events?: string[];
+  /** Pinned test data for this trigger */
+  pinnedData?: unknown;
 }
 
 export interface ActionNodeConfig {

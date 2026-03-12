@@ -62,4 +62,7 @@ export type {
   ConnectorActionResult,
   ConnectorState,
   ConnectorEvent,
+  ConnectorTrigger,
+  ConnectorTriggerEvent,
+  ConnectorTriggerField,
 } from '@flovia/core/connector';

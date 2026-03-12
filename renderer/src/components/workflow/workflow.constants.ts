@@ -14,6 +14,19 @@ export type WorkflowNodeType =
   | 'human' | 'output' | 'parallel' | 'loop' | 'delay'
   | 'httpRequest' | 'splitOut';
 
+// ─── Connector Trigger Definition (mirrors core/connector.ts) ───────────────
+
+export interface ConnectorTriggerDef {
+  connectorId: string;
+  connectorName: string;
+  connectorIcon: string;
+  triggerId: string;
+  triggerName: string;
+  triggerDescription: string;
+  events: Array<{ value: string; label: string; description?: string }>;
+  inputFields?: Array<{ key: string; label: string; type: string; placeholder?: string; required: boolean; helpText?: string }>;
+}
+
 // ─── Node Palette (renderer-specific, includes visual hints) ────────────────
 
 export const NODE_PALETTE = [

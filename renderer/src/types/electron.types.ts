@@ -150,6 +150,13 @@ export interface ElectronAPI {
     metadata: { id: string; name: string; description: string; icon: string; category: string; version: string };
     configFields: Array<{ key: string; label: string; type: string; placeholder?: string; required: boolean; helpText?: string }>;
     actions: Array<{ id: string; name: string; description: string; inputSchema?: Record<string, unknown> }>;
+    triggers?: Array<{
+      id: string;
+      name: string;
+      description: string;
+      events: Array<{ value: string; label: string; description?: string }>;
+      inputFields?: Array<{ key: string; label: string; type: string; placeholder?: string; required: boolean; helpText?: string }>;
+    }>;
     state: { status: string; error?: string; lastConnected?: string };
   } | null>;
   connectorGetState: (connectorId: string) => Promise<{ status: string; error?: string; lastConnected?: string }>;

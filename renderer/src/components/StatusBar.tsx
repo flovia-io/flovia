@@ -251,7 +251,6 @@ export default function StatusBar() {
           </Typography>
         )}
       </Box>
-
-      </Box>
+    </Box>
   );
 }

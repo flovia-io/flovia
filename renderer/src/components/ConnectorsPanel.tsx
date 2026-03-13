@@ -146,6 +146,21 @@ const DEMO_CONNECTORS: ConnectorInfo[] = [
       { id: 'get-deployment-logs', name: 'Get Logs', description: 'View build logs for a deployment' },
     ],
   },
+  {
+    id: 'gemini',
+    name: 'Gemini Image Generation',
+    description: 'Generate and edit images with Google Gemini (Nano Banana)',
+    category: 'ai',
+    status: 'disconnected',
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'password', required: true, helpText: 'Get your key at aistudio.google.com/apikey' },
+      { key: 'model', label: 'Model', type: 'select', required: true },
+    ],
+    actions: [
+      { id: 'generate-image', name: 'Generate Image', description: 'Generate an image from a text prompt' },
+      { id: 'edit-image', name: 'Edit Image', description: 'Edit an existing image with a text prompt' },
+    ],
+  },
 ];
 
 interface ConnectorCardProps {

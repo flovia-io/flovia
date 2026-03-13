@@ -13,7 +13,8 @@ export type WorkflowNodeType =
   | 'trigger' | 'action' | 'llm' | 'decision' | 'transform'
   | 'human' | 'output' | 'parallel' | 'loop' | 'delay'
   | 'httpRequest' | 'splitOut' | 'developer'
-  | 'codeRunner' | 'subWorkflow' | 'batchProcessor';
+  | 'codeRunner' | 'subWorkflow' | 'batchProcessor'
+  | 'geminiImage';
 
 // ─── Connector Trigger Definition (mirrors core/connector.ts) ───────────────
 
@@ -45,6 +46,7 @@ export const NODE_PALETTE = [
   { type: 'codeRunner', label: 'Code Runner', icon: '⚙️', color: '#7c3aed', description: 'Run JS, Shell, or Python code inline with live output' },
   { type: 'subWorkflow', label: 'Sub-Workflow', icon: '🔁', color: '#4f46e5', description: 'Embed another workflow as a single node' },
   { type: 'batchProcessor', label: 'Batch AI', icon: '📦', color: '#0891b2', description: 'Run an AI prompt over every item in an array' },
+  { type: 'geminiImage', label: 'Gemini Image', icon: '🎨', color: '#4285F4', description: 'Generate or edit images with Gemini (Nano Banana)' },
 ] as const;
 
 export type NodePaletteEntry = typeof NODE_PALETTE[number];

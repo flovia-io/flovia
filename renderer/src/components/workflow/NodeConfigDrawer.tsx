@@ -148,6 +148,20 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
           }
           result = await backend.connectorExecute(connectorId, actionId, params);
         }
+      } else if (node.data.nodeType === 'geminiImage') {
+        // Execute via the Gemini connector
+        const prompt = (cfg.prompt as string) || '';
+        if (!prompt) {
+          setExecResult({ success: false, error: 'A prompt is required for image generation' });
+          onUpdateNodeData(node.id, { status: 'failed' });
+          setExecuting(false);
+          return;
+        }
+        result = await backend.connectorExecute('gemini', 'generate-image', {
+          prompt,
+          aspectRatio: (cfg.aspectRatio as string) || '1:1',
+          imageSize: (cfg.imageSize as string) || '1K',
+        });
       } else if (node.data.nodeType === 'httpRequest') {
         // Basic HTTP request execution
         const method = (cfg.method as string) || 'GET';
@@ -294,6 +308,7 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
             <CodeRunnerConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
             <SubWorkflowConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
             <BatchProcessorConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} upstreamNodes={upstreamNodes} />
+            <GeminiImageConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
           </Box>
         )}
 
@@ -1652,6 +1667,91 @@ function BatchProcessorConfig({ node, cfg, onUpdate, upstreamNodes = [] }: Confi
         helperText="Dot-path to extract the array from input. Leave blank to use root array."
         sx={{ mb: 2 }}
       />
+    </>
+  );
+}
+
+// ─── Gemini Image Config ──────────────────────────────────────────────────────
+
+const GEMINI_MODELS = [
+  { value: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
+  { value: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image' },
+  { value: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image' },
+];
+const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5'];
+const IMAGE_SIZES = ['512', '1K', '2K', '4K'];
+
+function GeminiImageConfig({ node, cfg, onUpdate }: ConfigProps) {
+  if (node.data.nodeType !== 'geminiImage') return null;
+  return (
+    <>
+      <Alert severity="info" sx={{ mb: 2, fontSize: '0.75rem' }}>
+        Generate images using Google Gemini. Connect the Gemini connector in the sidebar, or provide an API key below.
+      </Alert>
+
+      <TextField
+        label="API Key (optional override)"
+        size="small"
+        fullWidth
+        type="password"
+        value={(cfg.apiKey as string) || ''}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, apiKey: e.target.value } })}
+        placeholder="Leave blank to use connector config"
+        helperText="Override the Gemini API key for this node"
+        sx={{ mb: 2 }}
+      />
+
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Model</InputLabel>
+        <Select
+          label="Model"
+          value={(cfg.model as string) || 'gemini-2.5-flash-image'}
+          onChange={(e) => onUpdate(node.id, { config: { ...cfg, model: e.target.value } })}
+        >
+          {GEMINI_MODELS.map(m => (
+            <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <TextField
+        label="Prompt"
+        size="small"
+        fullWidth
+        multiline
+        rows={3}
+        value={(cfg.prompt as string) || ''}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, prompt: e.target.value } })}
+        placeholder="A futuristic cityscape at sunset..."
+        helperText="Describe the image to generate. Can also use input from upstream nodes."
+        sx={{ mb: 2 }}
+      />
+
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Aspect Ratio</InputLabel>
+        <Select
+          label="Aspect Ratio"
+          value={(cfg.aspectRatio as string) || '1:1'}
+          onChange={(e) => onUpdate(node.id, { config: { ...cfg, aspectRatio: e.target.value } })}
+        >
+          {ASPECT_RATIOS.map(r => (
+            <MenuItem key={r} value={r}>{r}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Image Size</InputLabel>
+        <Select
+          label="Image Size"
+          value={(cfg.imageSize as string) || '1K'}
+          onChange={(e) => onUpdate(node.id, { config: { ...cfg, imageSize: e.target.value } })}
+        >
+          {IMAGE_SIZES.map(s => (
+            <MenuItem key={s} value={s}>{s}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
     </>
   );
 }

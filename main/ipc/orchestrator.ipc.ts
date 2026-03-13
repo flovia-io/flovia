@@ -629,6 +629,58 @@ export function registerOrchestratorIpc(): void {
             break;
           }
 
+          // ── Gemini Image Generation ────────────────────────────────────────
+          case 'geminiImage': {
+            const { GoogleGenAI } = await import('@google/genai');
+
+            // Resolve config: use node config or fall back to connector config
+            const geminiConnectorCfg = registry.getConfig<{ apiKey?: string }>('gemini');
+            const geminiApiKey = (resolvedCfg.apiKey as string)
+              || geminiConnectorCfg?.apiKey
+              || process.env.GEMINI_API_KEY
+              || '';
+            const geminiModel = (resolvedCfg.model as string) || 'gemini-2.5-flash-image';
+            const prompt = typeof input === 'object' && input !== null
+              ? (input as any).message || (input as any).text || (input as any).prompt || JSON.stringify(input)
+              : String(input || resolvedCfg.prompt || '');
+
+            if (!geminiApiKey) throw new Error('Gemini API key is required. Configure it in the node or connect the Gemini connector.');
+            if (!prompt) throw new Error('A prompt is required for image generation.');
+
+            const aspectRatio = (resolvedCfg.aspectRatio as string) || '1:1';
+            const imageSize = (resolvedCfg.imageSize as string) || '1K';
+
+            broadcastChunk(node.id, `Generating image with ${geminiModel}...\n`, `Generating image with ${geminiModel}...\n`);
+
+            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+            const response = await ai.models.generateContent({
+              model: geminiModel,
+              contents: prompt,
+              config: {
+                responseModalities: ['TEXT', 'IMAGE'],
+                imageConfig: { aspectRatio, imageSize },
+              },
+            });
+
+            const result: { text?: string; imageBase64?: string; mimeType?: string } = {};
+            for (const part of response.candidates?.[0]?.content?.parts ?? []) {
+              if ((part as any).text) {
+                result.text = (part as any).text;
+              } else if ((part as any).inlineData) {
+                result.imageBase64 = (part as any).inlineData.data;
+                result.mimeType = (part as any).inlineData.mimeType;
+              }
+            }
+
+            if (!result.imageBase64) {
+              throw new Error('No image was generated. Try a different prompt.');
+            }
+
+            output = result;
+            broadcastChunk(node.id, 'Image generated successfully.\n', 'Image generated successfully.\n');
+            break;
+          }
+
           // ── Developer Agent ───────────────────────────────────────────────
           case 'developer': {
             const Anthropic = (await import('@anthropic-ai/sdk')).default;

@@ -21,6 +21,7 @@ import McpServersPanel from './McpServersPanel';
 import CliProvidersPanel from './CliProvidersPanel';
 import GmailPanel from './GmailPanel';
 import DigitalOceanPanel from './DigitalOceanPanel';
+import GeminiPanel from './GeminiPanel';
 import ExplorerGitControls from './ExplorerGitControls';
 import WorkflowListPanel from './WorkflowListPanel';
 import { Panel, PanelHeader } from './mui';
@@ -44,6 +45,7 @@ export default function Sidebar({ onCollapse }: SidebarProps) {
   if (activePanel === 'copilot') return <CliProvidersPanel />;
   if (activePanel === 'gmail') return <GmailPanel />;
   if (activePanel === 'digitalocean') return <DigitalOceanPanel />;
+  if (activePanel === 'gemini') return <GeminiPanel />;
 
   // Default: Explorer panel
   return (

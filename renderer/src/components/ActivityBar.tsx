@@ -68,6 +68,7 @@ interface PanelConfig {
 
 const panels: PanelConfig[] = [
   { id: 'explorer', label: 'Explorer', icon: <FolderIcon fontSize="small" /> },
+  { id: 'workflows', label: 'Workflows', icon: <AccountTreeIcon fontSize="small" /> },
   { id: 'search', label: 'Search', icon: <SearchIcon fontSize="small" /> },
   { id: 'source-control', label: 'Source Control', icon: <GitIcon size={18} />, gitOnly: true },
   { id: 'npm', label: 'NPM Scripts', icon: <NpmIcon size={18} />, npmOnly: true },
@@ -247,25 +248,6 @@ export default function ActivityBar({ onToggleTerminal, terminalVisible }: Activ
             }}
           >
             <TuneIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        {/* Workflow Editor */}
-        <Tooltip title="Workflow Editor" placement="right">
-          <IconButton
-            onClick={() => openWorkflowEditor()}
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 1.5,
-              color: 'text.secondary',
-              '&:hover': {
-                bgcolor: 'rgba(0,0,0,0.05)',
-                color: 'text.primary',
-              },
-            }}
-          >
-            <AccountTreeIcon fontSize="small" />
           </IconButton>
         </Tooltip>
 

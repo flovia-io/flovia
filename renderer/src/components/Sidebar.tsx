@@ -23,6 +23,7 @@ import GmailPanel from './GmailPanel';
 import DigitalOceanPanel from './DigitalOceanPanel';
 import ExplorerGitControls from './ExplorerGitControls';
 import WorkflowListPanel from './WorkflowListPanel';
+import WorkflowsSidebarPanel from './WorkflowsSidebarPanel';
 import { Panel, PanelHeader } from './mui';
 
 interface SidebarProps {
@@ -44,6 +45,7 @@ export default function Sidebar({ onCollapse }: SidebarProps) {
   if (activePanel === 'copilot') return <CliProvidersPanel />;
   if (activePanel === 'gmail') return <GmailPanel />;
   if (activePanel === 'digitalocean') return <DigitalOceanPanel />;
+  if (activePanel === 'workflows') return <WorkflowsSidebarPanel />;
 
   // Default: Explorer panel
   return (

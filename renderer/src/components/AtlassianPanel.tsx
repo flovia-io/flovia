@@ -1,10 +1,14 @@
 /**
  * AtlassianPanel - Jira integration with token-based connection, projects and tickets
+ *
+ * Refactored to use ConnectorPanelShell, ExpandableListItem, and shared utilities.
  */
 import { useState, useEffect } from 'react';
 import type { AtlassianConnection, AtlassianProject, AtlassianIssue } from '../types/atlassian.types';
 import { useBackend } from '../context/BackendContext';
-import { ChevronDownIcon, ChevronRightIcon, RefreshIcon } from './icons';
+import { ChevronDownIcon, ChevronRightIcon } from './icons';
+import { ConnectorPanelShell } from './shared';
+import type { ConnectorField } from './shared/ConnectorPanelShell';
 
 // Atlassian logo icon
 const AtlassianIcon = ({ size = 16 }: { size?: number }) => (
@@ -14,32 +18,42 @@ const AtlassianIcon = ({ size = 16 }: { size?: number }) => (
 );
 
 // Issue type icons
-const IssueTypeIcon = ({ type }: { type: string }) => {
-  const lower = type.toLowerCase();
-  if (lower.includes('bug')) return <span className="at-issue-type bug">🐛</span>;
-  if (lower.includes('story')) return <span className="at-issue-type story">📗</span>;
-  if (lower.includes('epic')) return <span className="at-issue-type epic">⚡</span>;
-  if (lower.includes('sub')) return <span className="at-issue-type subtask">📎</span>;
-  return <span className="at-issue-type task">✅</span>;
+const ISSUE_TYPE_ICONS: Record<string, string> = {
+  bug: '🐛',
+  story: '📗',
+  epic: '⚡',
+  sub: '📎',
 };
 
+function getIssueTypeIcon(type: string): string {
+  const lower = type.toLowerCase();
+  for (const [key, icon] of Object.entries(ISSUE_TYPE_ICONS)) {
+    if (lower.includes(key)) return icon;
+  }
+  return '✅';
+}
+
 // Status badge
-const StatusBadge = ({ status, category }: { status: string; category: string }) => {
+function StatusBadge({ status, category }: { status: string; category: string }) {
   let cls = 'at-status';
   if (category === 'done') cls += ' done';
   else if (category === 'new') cls += ' todo';
   else cls += ' inprogress';
   return <span className={cls}>{status}</span>;
-};
+}
+
+const FORM_FIELDS: ConnectorField[] = [
+  { key: 'domain', label: 'Domain', placeholder: 'mycompany.atlassian.net' },
+  { key: 'email', label: 'Email', type: 'email', placeholder: 'you@company.com' },
+  { key: 'token', label: 'API Token', type: 'password', placeholder: 'Atlassian API token' },
+];
 
 export default function AtlassianPanel() {
   const backend = useBackend();
   const [connections, setConnections] = useState<AtlassianConnection[]>([]);
   const [activeConnection, setActiveConnection] = useState<AtlassianConnection | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [formDomain, setFormDomain] = useState('');
-  const [formEmail, setFormEmail] = useState('');
-  const [formToken, setFormToken] = useState('');
+  const [formValues, setFormValues] = useState<Record<string, string>>({ domain: '', email: '', token: '' });
   const [formError, setFormError] = useState('');
   const [formTesting, setFormTesting] = useState(false);
   const [projects, setProjects] = useState<AtlassianProject[]>([]);
@@ -54,19 +68,14 @@ export default function AtlassianPanel() {
     (async () => {
       const saved = await backend.atlassianLoadConnections();
       setConnections(saved);
-      if (saved.length > 0) {
-        setActiveConnection(saved[0]);
-      }
+      if (saved.length > 0) setActiveConnection(saved[0]);
     })();
   }, []);
 
   // Load projects when active connection changes
   useEffect(() => {
-    if (activeConnection) {
-      loadProjects();
-    } else {
-      setProjects([]);
-    }
+    if (activeConnection) loadProjects();
+    else { setProjects([]); }
   }, [activeConnection]);
 
   const loadProjects = async () => {
@@ -112,9 +121,9 @@ export default function AtlassianPanel() {
   };
 
   const handleAddConnection = async () => {
-    const domain = formDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const email = formEmail.trim();
-    const token = formToken.trim();
+    const domain = formValues.domain?.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const email = formValues.email?.trim();
+    const token = formValues.token?.trim();
 
     if (!domain || !email || !token) {
       setFormError('All fields are required');
@@ -144,9 +153,7 @@ export default function AtlassianPanel() {
     await backend.atlassianSaveConnections(updated);
     setActiveConnection(connection);
     setShowAddForm(false);
-    setFormDomain('');
-    setFormEmail('');
-    setFormToken('');
+    setFormValues({ domain: '', email: '', token: '' });
     setFormError('');
     setFormTesting(false);
   };
@@ -174,86 +181,33 @@ export default function AtlassianPanel() {
     loadProjects();
   };
 
-  // ── No connections state ──
-  if (connections.length === 0 && !showAddForm) {
-    return (
-      <div className="at-panel">
-        <div className="at-panel-header">
-          <AtlassianIcon size={20} />
-          <h2>Atlassian</h2>
-        </div>
-        <div className="at-panel-empty">
-          <p>No Atlassian connections configured.</p>
-          <p className="at-hint">Connect your Jira instance to view projects and tickets.</p>
-          <button className="at-add-btn" onClick={() => setShowAddForm(true)}>
-            <span>＋</span> Add Connection
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const connected = connections.length > 0;
 
   return (
-    <div className="at-panel">
-      <div className="at-panel-header">
-        <AtlassianIcon size={20} />
-        <h2>Atlassian</h2>
-        <div className="at-panel-header-actions">
-          {activeConnection && (
-            <button
-              className="at-refresh-btn"
-              onClick={refreshAll}
-              disabled={loadingProjects}
-              title="Refresh"
-            >
-              <RefreshIcon size={14} className={loadingProjects ? 'spinning' : ''} />
-            </button>
-          )}
-          <button
-            className="at-add-btn-small"
-            onClick={() => setShowAddForm(v => !v)}
-            title="Add connection"
-          >
-            ＋
-          </button>
-        </div>
-      </div>
-
-      {/* Connection form */}
-      {showAddForm && (
-        <div className="at-form">
-          <label className="at-form-label">Domain</label>
-          <input
-            className="at-form-input"
-            value={formDomain}
-            onChange={e => setFormDomain(e.target.value)}
-            placeholder="mycompany.atlassian.net"
-          />
-          <label className="at-form-label">Email</label>
-          <input
-            className="at-form-input"
-            value={formEmail}
-            onChange={e => setFormEmail(e.target.value)}
-            placeholder="you@company.com"
-          />
-          <label className="at-form-label">API Token</label>
-          <input
-            className="at-form-input"
-            type="password"
-            value={formToken}
-            onChange={e => setFormToken(e.target.value)}
-            placeholder="Atlassian API token"
-          />
-          {formError && <div className="at-form-error">{formError}</div>}
-          <div className="at-form-actions">
-            <button className="at-form-cancel" onClick={() => { setShowAddForm(false); setFormError(''); }}>Cancel</button>
-            <button className="at-form-save" onClick={handleAddConnection} disabled={formTesting}>
-              {formTesting ? 'Testing…' : 'Connect'}
-            </button>
-          </div>
-        </div>
-      )}
-
+    <ConnectorPanelShell
+      title="Atlassian"
+      icon={<AtlassianIcon size={20} />}
+      classPrefix="at"
+      connected={connected}
+      showForm={showAddForm}
+      onToggleForm={setShowAddForm}
+      formFields={FORM_FIELDS}
+      formValues={formValues}
+      onFormChange={(key, val) => setFormValues(prev => ({ ...prev, [key]: val }))}
+      formError={formError}
+      formBusy={formTesting}
+      formSubmitLabel="Connect"
+      onFormSubmit={handleAddConnection}
+      onFormCancel={() => { setShowAddForm(false); setFormError(''); }}
+      onRefresh={activeConnection ? refreshAll : undefined}
+      refreshing={loadingProjects}
+      error={error}
+      onRetry={loadProjects}
+      loading={loadingProjects && projects.length === 0}
+      loadingLabel="Loading projects…"
+      empty={!loadingProjects && projects.length === 0 && !!activeConnection && !error}
+      emptyLabel="No projects found."
+    >
       {/* Connection selector */}
       {connections.length > 0 && (
         <div className="at-connections">
@@ -267,7 +221,7 @@ export default function AtlassianPanel() {
               <span className="at-connection-domain">{conn.domain}</span>
               <button
                 className="at-connection-remove"
-                onClick={(e) => { e.stopPropagation(); removeConnection(idx); }}
+                onClick={e => { e.stopPropagation(); removeConnection(idx); }}
                 title="Remove connection"
               >
                 ×
@@ -277,26 +231,7 @@ export default function AtlassianPanel() {
         </div>
       )}
 
-      {/* Error state */}
-      {error && (
-        <div className="at-error">
-          <span>{error}</span>
-          <button className="at-error-retry" onClick={loadProjects}>Retry</button>
-        </div>
-      )}
-
       {/* Projects & Tickets */}
-      {loadingProjects && projects.length === 0 && (
-        <div className="at-loading">
-          <span className="gh-tree-spinner"></span>
-          <span>Loading projects…</span>
-        </div>
-      )}
-
-      {!loadingProjects && projects.length === 0 && activeConnection && !error && (
-        <div className="at-empty-projects">No projects found.</div>
-      )}
-
       <div className="at-projects">
         {projects.map(project => {
           const isExpanded = expandedProject === project.key;
@@ -320,7 +255,7 @@ export default function AtlassianPanel() {
                 <div className="at-issues">
                   {isLoadingIssues && issues.length === 0 && (
                     <div className="at-loading-issues">
-                      <span className="gh-tree-spinner"></span>
+                      <span className="gh-tree-spinner" />
                       <span>Loading tickets…</span>
                     </div>
                   )}
@@ -331,7 +266,9 @@ export default function AtlassianPanel() {
                       onClick={() => openIssueInBrowser(issue.key)}
                       title={`${issue.key}: ${issue.summary}`}
                     >
-                      <IssueTypeIcon type={issue.issueType} />
+                      <span className={`at-issue-type ${issue.issueType.toLowerCase()}`}>
+                        {getIssueTypeIcon(issue.issueType)}
+                      </span>
                       <span className="at-issue-key">{issue.key}</span>
                       <span className="at-issue-summary">{issue.summary}</span>
                       <StatusBadge status={issue.status} category={issue.statusCategory} />
@@ -346,6 +283,6 @@ export default function AtlassianPanel() {
           );
         })}
       </div>
-    </div>
+    </ConnectorPanelShell>
   );
 }

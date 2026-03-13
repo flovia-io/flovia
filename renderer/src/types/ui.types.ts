@@ -3,7 +3,7 @@
  */
 import type { CliProviderId } from './cliProvider.types';
 
-export type SidePanel = 'explorer' | 'search' | 'source-control' | 'npm' | 'supabase' | 'database' | 'github' | 'atlassian' | 'mcp' | 'copilot' | 'gmail' | 'digitalocean';
+export type SidePanel = 'explorer' | 'workflows' | 'search' | 'source-control' | 'npm' | 'supabase' | 'database' | 'github' | 'atlassian' | 'mcp' | 'copilot' | 'gmail' | 'digitalocean';
 
 /** Chat mode — local AI modes, external CLI provider via 'cli:<providerId>', or custom workflow via 'wf:<workflowId>' */
 export type ChatMode = 'Agent' | 'Chat' | `cli:${CliProviderId}` | `wf:${string}`;

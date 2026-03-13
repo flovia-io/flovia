@@ -1,4 +1,4 @@
-import { HistoryIcon, PlusIcon, SettingsIcon, CollapseIcon, ClearIcon } from '../icons';
+import { HistoryIcon, PlusIcon, CollapseIcon } from '../icons';
 
 interface ChatHeaderProps {
   historySidebarOpen: boolean;
@@ -6,7 +6,6 @@ interface ChatHeaderProps {
   onNewChat: () => void;
   onDebugOpen: () => void;
   onClearChat: () => void;
-  onOpenSettings: () => void;
   onCollapse?: () => void;
   showClear: boolean;
   /** When false (production / no workspace), the debug button is hidden */
@@ -22,7 +21,6 @@ export default function ChatHeader({
   onNewChat,
   onDebugOpen,
   onClearChat,
-  onOpenSettings,
   onCollapse,
   showClear,
   isEditing = true,
@@ -57,9 +55,6 @@ export default function ChatHeader({
             🗑
           </button>
         )}
-        <button className="chat-hdr-btn" onClick={onOpenSettings} title="AI Settings">
-          ⚙️
-        </button>
         {onCollapse && (
           <button className="panel-collapse-btn" onClick={onCollapse} title="Collapse chat">
             <CollapseIcon />

@@ -621,7 +621,6 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
           onNewChat={handleNewChat}
           onDebugOpen={() => openDebugTraceTab()}
           onClearChat={clearChat}
-          onOpenSettings={() => setSettingsOpen(true)}
           onCollapse={onCollapse}
           showClear={messages.length > 0}
           isEditing={!!folderPath}

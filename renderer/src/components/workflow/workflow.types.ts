@@ -18,6 +18,10 @@ export interface WfNodeData {
   error?: string;
   /** Pinned data — fixed input for testing (like n8n pinData) */
   pinnedData?: unknown;
+  /** Live streaming output shown on the canvas while a node is running */
+  liveOutput?: string;
+  /** True when the user has dismissed the live output bubble */
+  outputDismissed?: boolean;
   [key: string]: unknown;
 }
 

@@ -88,6 +88,7 @@ import { CORE_AGENT_TOOLS, buildAllAgentTools, DEFAULT_AGENT_PARAMETERS, resolve
 import type { ConnectorToolSource } from '../types/agent.types';
 import { useAgentExecution } from '../context/AgentExecutionContext';
 import { useBackend } from '../context/BackendContext';
+import { WorkflowDebugView } from './workflow/WorkflowDebugView';
 
 /* ─── Constants ─── */
 const categoryColors: Record<string, { bg: string; border: string; accent: string }> = {
@@ -1250,74 +1251,52 @@ export default function AgentsPanel() {
                 </Box>
               </Box>
             ) : (
-              <>
-                {/* Trace list + steps */}
-                <Paper elevation={0} sx={{ width: 300, flexShrink: 0, borderRight: '1px solid #e0e0e0', borderRadius: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                  <Box sx={{ px: 1.5, py: 1, borderBottom: '1px solid #f0f0f0', bgcolor: '#fafafa' }}>
-                    <FormControl size="small" fullWidth>
-                      <Select
-                        value={selectedTraceId ?? traces[traces.length - 1]?.id ?? ''}
-                        onChange={e => { setSelectedTraceId(e.target.value); setSelectedStepId(null); }}
-                        sx={{ fontSize: '0.72rem' }}
-                      >
-                        {traces.map(t => (
-                          <MenuItem key={t.id} value={t.id} sx={{ fontSize: '0.72rem' }}>
-                            {t.status === 'running' ? '⏳' : t.status === 'success' ? '✓' : '✗'} {t.agentName} — "{t.userRequest.slice(0, 40)}{t.userRequest.length > 40 ? '…' : ''}"
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Box>
-
-                  <Box sx={{ flex: 1, overflowY: 'auto' }}>
-                    {(() => {
-                      const currentTrace = traces.find(t => t.id === (selectedTraceId ?? traces[traces.length - 1]?.id));
-                      if (!currentTrace) return null;
-                      return currentTrace.steps.map(step => (
-                        <TraceStepRow key={step.id} step={step} selected={selectedStepId === step.id}
-                          onSelect={() => setSelectedStepId(step.id)} />
-                      ));
-                    })()}
-                  </Box>
-
+              <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                {/* Trace selector */}
+                <Box sx={{ px: 1.5, py: 1, borderBottom: '1px solid #f0f0f0', bgcolor: '#fafafa', display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <FormControl size="small" sx={{ minWidth: 300 }}>
+                    <Select
+                      value={selectedTraceId ?? traces[traces.length - 1]?.id ?? ''}
+                      onChange={e => { setSelectedTraceId(e.target.value); setSelectedStepId(null); }}
+                      sx={{ fontSize: '0.72rem' }}
+                    >
+                      {traces.map(t => (
+                        <MenuItem key={t.id} value={t.id} sx={{ fontSize: '0.72rem' }}>
+                          {t.status === 'running' ? '⏳' : t.status === 'success' ? '✓' : '✗'} {t.agentName} — "{t.userRequest.slice(0, 40)}{t.userRequest.length > 40 ? '…' : ''}"
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                   {(() => {
                     const currentTrace = traces.find(t => t.id === (selectedTraceId ?? traces[traces.length - 1]?.id));
                     if (!currentTrace) return null;
                     const sc = currentTrace.steps.filter(s => s.status === 'success').length;
                     const ec = currentTrace.steps.filter(s => s.status === 'error').length;
                     return (
-                      <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid #f0f0f0', bgcolor: '#fafafa', display: 'flex', gap: 1.25, fontSize: '0.65rem', color: '#9e9e9e' }}>
-                        <span>{currentTrace.steps.length} steps</span>
-                        <Typography sx={{ color: '#43a047', fontSize: '0.65rem' }}>✓ {sc}</Typography>
-                        {ec > 0 && <Typography sx={{ color: '#e53935', fontSize: '0.65rem' }}>✗ {ec}</Typography>}
+                      <Box sx={{ display: 'flex', gap: 1, fontSize: '0.68rem', color: '#9e9e9e', alignItems: 'center' }}>
+                        <Chip label={`${currentTrace.steps.length} steps`} size="small" sx={{ height: 20, fontSize: '0.6rem', fontWeight: 600 }} />
+                        <Typography sx={{ color: '#43a047', fontSize: '0.68rem', fontWeight: 600 }}>✓ {sc}</Typography>
+                        {ec > 0 && <Typography sx={{ color: '#e53935', fontSize: '0.68rem', fontWeight: 600 }}>✗ {ec}</Typography>}
                         {currentTrace.totalDurationMs != null && (
-                          <Typography sx={{ ml: 'auto', fontSize: '0.65rem', color: '#9e9e9e' }}>{(currentTrace.totalDurationMs / 1000).toFixed(1)}s</Typography>
+                          <Typography sx={{ fontSize: '0.68rem', color: '#9e9e9e' }}>{(currentTrace.totalDurationMs / 1000).toFixed(1)}s</Typography>
                         )}
                       </Box>
                     );
                   })()}
-                </Paper>
-
-                {/* Step detail */}
-                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                  {(() => {
-                    const currentTrace = traces.find(t => t.id === (selectedTraceId ?? traces[traces.length - 1]?.id));
-                    const step = currentTrace?.steps.find(s => s.id === selectedStepId);
-                    if (!step) {
-                      return (
-                        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bdbdbd' }}>
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Typography sx={{ fontSize: '2.5rem', mb: 1 }}>🖱️</Typography>
-                            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: '#9e9e9e' }}>Select a step</Typography>
-                            <Typography sx={{ fontSize: '0.72rem', mt: 0.5 }}>Click a step to view parameters, input, and output.</Typography>
-                          </Box>
-                        </Box>
-                      );
-                    }
-                    return <StepDetailPanel step={step} />;
-                  })()}
                 </Box>
-              </>
+                {/* Workflow debug canvas */}
+                {(() => {
+                  const currentTrace = traces.find(t => t.id === (selectedTraceId ?? traces[traces.length - 1]?.id));
+                  if (!currentTrace) return null;
+                  return (
+                    <WorkflowDebugView
+                      trace={currentTrace}
+                      pipelineNodes={activeAgent.nodes}
+                      pipelineEdges={activeAgent.edges}
+                    />
+                  );
+                })()}
+              </Box>
             )}
           </Box>
         )}

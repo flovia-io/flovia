@@ -1,15 +1,14 @@
 /**
- * AIDebugPanel — Agent trace / execution view.
+ * AIDebugPanel — Unified agent debug view using the same workflow canvas.
  *
- * Renders agent runs in the same visual style as the workflow execution panel:
- * - Multiple runs listed in a sidebar (newest first)
- * - Per-step timeline with status dots, expandable input/output
- * - Phase-category color coding and token usage badges
- * - Run header with stats, duration, and clear/stop actions
- * - Stops reflecting when agent work is complete (no infinite running)
+ * Renders agent runs on the actual agent pipeline canvas with:
+ *  - Run list sidebar (newest first)
+ *  - The agent's pipeline graph with execution data overlaid on each node
+ *  - If a node is hit multiple times (loops), shows "Run 1", "Run 2", etc.
+ *  - Expandable data table below each node with structured input/output per run
+ *  - Toggle between canvas debug view and classic timeline view
  *
- * Shares step cards, data blocks, status icons, and layout primitives
- * with the workflow ExecutionsPanel via ../shared/ExecutionViewParts.
+ * Shares components with the workflow editor for a unified experience.
  */
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Box from '@mui/material/Box';
@@ -22,11 +21,15 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
+import Button from '@mui/material/Button';
+import LinearProgress from '@mui/material/LinearProgress';
 import HistoryIcon from '@mui/icons-material/History';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import ViewListIcon from '@mui/icons-material/ViewList';
 
 import { useAgentExecution } from '../context/AgentExecutionContext';
 import type { AgentTrace, TraceStep } from '../types/agent.types';
@@ -37,11 +40,12 @@ import {
   RunHeader,
   StepTimeline,
   formatDuration,
-  STATUS_COLORS,
 } from './shared/ExecutionViewParts';
 import type { StepCardData } from './shared/ExecutionViewParts';
 
-// ─── Trace → StepCardData adapter (keeps conversion in the renderer) ────────
+import { WorkflowDebugView } from './workflow/WorkflowDebugView';
+
+// ─── Trace → StepCardData adapter ──────────────────────────────────────────
 
 function traceStepToCardData(step: TraceStep): StepCardData {
   return {
@@ -59,20 +63,28 @@ function traceStepToCardData(step: TraceStep): StepCardData {
   };
 }
 
-// ─── Run list item status normalization ─────────────────────────────────────
+// ─── Status normalization ───────────────────────────────────────────────────
 
 function traceStatusToRunStatus(status: string): string {
   if (status === 'success') return 'completed';
   if (status === 'error') return 'failed';
-  return status; // 'running'
+  return status;
 }
+
+// ─── View modes ─────────────────────────────────────────────────────────────
+
+type DebugViewMode = 'canvas' | 'timeline';
 
 // ─── Main Panel ─────────────────────────────────────────────────────────────
 
 export default function AIDebugPanel() {
-  const { traces, activeTraceId, setActiveTraceId, finishTrace, clearTraces } = useAgentExecution();
+  const {
+    traces, activeTraceId, setActiveTraceId, finishTrace, clearTraces,
+    activeAgent,
+  } = useAgentExecution();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoSelect, setAutoSelect] = useState(true);
+  const [viewMode, setViewMode] = useState<DebugViewMode>('canvas');
 
   // Auto-select newest running trace
   useEffect(() => {
@@ -115,9 +127,17 @@ export default function AIDebugPanel() {
         }}
       >
         <BugReportIcon sx={{ fontSize: 20, color: 'primary.main' }} />
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
-          Agent Traces
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          Agent Debug
         </Typography>
+        {activeAgent && (
+          <Chip
+            label={activeAgent.name}
+            size="small"
+            sx={{ fontSize: 10, height: 20, bgcolor: '#e3f2fd', color: '#1976d2', fontWeight: 600 }}
+          />
+        )}
+        <Box sx={{ flex: 1 }} />
         {runningCount > 0 && (
           <Chip
             label={`${runningCount} running`}
@@ -134,6 +154,40 @@ export default function AIDebugPanel() {
           />
         )}
         <Chip label={`${traces.length} runs`} size="small" sx={{ fontSize: 10, height: 20 }} />
+
+        {/* View mode toggle */}
+        <Box sx={{ display: 'flex', gap: 0, border: '1px solid #e0e0e0', borderRadius: 1.5, overflow: 'hidden', ml: 0.5 }}>
+          <Tooltip title="Canvas view (workflow)">
+            <Button
+              size="small"
+              onClick={() => setViewMode('canvas')}
+              sx={{
+                minWidth: 32, px: 1, py: 0.25, borderRadius: 0, fontSize: 10,
+                bgcolor: viewMode === 'canvas' ? '#e3f2fd' : 'transparent',
+                color: viewMode === 'canvas' ? '#1976d2' : '#9e9e9e',
+                '&:hover': { bgcolor: viewMode === 'canvas' ? '#bbdefb' : '#f5f5f5' },
+              }}
+            >
+              <AccountTreeIcon sx={{ fontSize: 16 }} />
+            </Button>
+          </Tooltip>
+          <Tooltip title="Timeline view (list)">
+            <Button
+              size="small"
+              onClick={() => setViewMode('timeline')}
+              sx={{
+                minWidth: 32, px: 1, py: 0.25, borderRadius: 0, fontSize: 10,
+                borderLeft: '1px solid #e0e0e0',
+                bgcolor: viewMode === 'timeline' ? '#e3f2fd' : 'transparent',
+                color: viewMode === 'timeline' ? '#1976d2' : '#9e9e9e',
+                '&:hover': { bgcolor: viewMode === 'timeline' ? '#bbdefb' : '#f5f5f5' },
+              }}
+            >
+              <ViewListIcon sx={{ fontSize: 16 }} />
+            </Button>
+          </Tooltip>
+        </Box>
+
         {runningCount > 0 && (
           <Tooltip title="Stop running agent">
             <IconButton size="small" onClick={handleStopRunning} sx={{ color: '#ef4444' }}>
@@ -150,14 +204,17 @@ export default function AIDebugPanel() {
         </Tooltip>
       </Box>
 
-      {/* ── Body: runs list + detail (matching workflow ExecutionsPanel layout) ── */}
+      {/* Running progress */}
+      {runningCount > 0 && <LinearProgress sx={{ height: 2 }} />}
+
+      {/* ── Body ── */}
       {traces.length === 0 ? (
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
           <BugReportIcon sx={{ fontSize: 48, color: '#e0e0e0' }} />
           <Typography variant="h6" sx={{ color: '#bdbdbd' }}>No agent traces yet</Typography>
           <Typography variant="body2" sx={{ color: '#9e9e9e', textAlign: 'center', maxWidth: 320 }}>
-            Send a message in the chat to see AI agent calls here in real time.
-            Every step — research, classification, planning, execution, verification — will be logged.
+            Send a message in the chat to see the agent pipeline execute here in real time.
+            Every step — research, classification, planning, execution, verification — is logged with inputs and outputs.
           </Typography>
         </Box>
       ) : (
@@ -166,21 +223,23 @@ export default function AIDebugPanel() {
           <Box
             ref={scrollRef}
             sx={{
-              width: 280,
+              width: 260,
               borderRight: 1,
               borderColor: 'divider',
               overflow: 'auto',
               bgcolor: '#fafafa',
               flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
             }}
           >
-            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <HistoryIcon sx={{ fontSize: 20, color: 'primary.main' }} />
-              <Typography variant="subtitle2" fontWeight={700}>Runs</Typography>
-              <Chip label={traces.length} size="small" sx={{ ml: 'auto', height: 22, fontSize: 11, fontWeight: 700 }} />
+            <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HistoryIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+              <Typography variant="subtitle2" fontWeight={700} sx={{ fontSize: 12 }}>Runs</Typography>
+              <Chip label={traces.length} size="small" sx={{ ml: 'auto', height: 20, fontSize: 10, fontWeight: 700 }} />
             </Box>
             <Divider />
-            <List dense sx={{ py: 0.5 }}>
+            <List dense sx={{ py: 0.25, flex: 1, overflowY: 'auto' }}>
               {traces.map((trace, idx) => {
                 const normStatus = traceStatusToRunStatus(trace.status);
                 const failedCount = trace.steps.filter(s => s.status === 'error').length;
@@ -205,46 +264,74 @@ export default function AIDebugPanel() {
                       }),
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: 32 }}>
-                      <StatusIcon status={normStatus} size={18} />
+                    <ListItemIcon sx={{ minWidth: 28 }}>
+                      <StatusIcon status={normStatus} size={16} />
                     </ListItemIcon>
                     <ListItemText
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <span style={{ fontWeight: 700, fontSize: 12 }}>{trace.agentName}</span>
+                          <span style={{ fontWeight: 700, fontSize: 11 }}>{trace.agentName}</span>
                           {failedCount > 0 && (
-                            <Chip label={`${failedCount} err`} size="small" color="error" variant="outlined" sx={{ height: 16, fontSize: 9 }} />
+                            <Chip label={`${failedCount} err`} size="small" color="error" variant="outlined" sx={{ height: 14, fontSize: 8 }} />
                           )}
                         </Box>
                       }
                       secondary={
                         <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <AccessTimeIcon sx={{ fontSize: 10 }} />
-                          <span style={{ fontSize: 10 }}>{new Date(trace.startedAt).toLocaleTimeString()}</span>
-                          {trace.totalDurationMs != null && <span style={{ fontSize: 10 }}> · {formatDuration(trace.totalDurationMs)}</span>}
+                          <AccessTimeIcon sx={{ fontSize: 9 }} />
+                          <span style={{ fontSize: 9 }}>{new Date(trace.startedAt).toLocaleTimeString()}</span>
+                          {trace.totalDurationMs != null && <span style={{ fontSize: 9 }}> · {formatDuration(trace.totalDurationMs)}</span>}
                         </Box>
                       }
-                      secondaryTypographyProps={{ fontSize: 10 }}
+                      secondaryTypographyProps={{ fontSize: 9 }}
                     />
                     <Chip
-                      label={`${trace.steps.length} steps`}
+                      label={`${trace.steps.length}`}
                       size="small"
-                      sx={{ height: 20, fontSize: 10, fontWeight: 600 }}
+                      sx={{ height: 18, fontSize: 9, fontWeight: 600, minWidth: 28 }}
                     />
                   </ListItemButton>
                 );
               })}
             </List>
+
+            {/* Request preview for selected trace */}
+            {activeTrace && (
+              <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid #e0e0e0', bgcolor: '#e3f2fd' }}>
+                <Typography sx={{ fontSize: 9, fontWeight: 700, color: '#1565c0', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Request
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: '#0d47a1', mt: 0.25 }}>
+                  {activeTrace.userRequest.length > 100 ? activeTrace.userRequest.slice(0, 100) + '…' : activeTrace.userRequest}
+                </Typography>
+              </Box>
+            )}
           </Box>
 
-          {/* ── Run detail ── */}
-          <Box sx={{ flex: 1, overflow: 'auto', p: 0 }}>
+          {/* ── Main content area ── */}
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {activeTrace ? (
-              <TraceDetail trace={activeTrace} traceIndex={traces.indexOf(activeTrace) + 1} />
+              <>
+                {/* Stats bar */}
+                <DebugStatsBar trace={activeTrace} traceIndex={traces.indexOf(activeTrace) + 1} />
+
+                {/* View content */}
+                {viewMode === 'canvas' ? (
+                  <WorkflowDebugView
+                    trace={activeTrace}
+                    pipelineNodes={activeAgent.nodes}
+                    pipelineEdges={activeAgent.edges}
+                  />
+                ) : (
+                  <Box sx={{ flex: 1, overflow: 'auto', p: 2.5 }}>
+                    <TraceTimeline trace={activeTrace} />
+                  </Box>
+                )}
+              </>
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary', gap: 1 }}>
                 <HistoryIcon sx={{ fontSize: 48, opacity: 0.2 }} />
-                <Typography sx={{ fontSize: 14 }}>Select a trace to view execution details</Typography>
+                <Typography sx={{ fontSize: 14 }}>Select a run to debug</Typography>
               </Box>
             )}
           </Box>
@@ -254,37 +341,55 @@ export default function AIDebugPanel() {
   );
 }
 
-// ─── Trace Detail (uses shared RunHeader + StepTimeline) ────────────────────
+// ─── Debug Stats Bar ────────────────────────────────────────────────────────
 
-function TraceDetail({ trace, traceIndex }: { trace: AgentTrace; traceIndex: number }) {
+function DebugStatsBar({ trace, traceIndex }: { trace: AgentTrace; traceIndex: number }) {
   const normStatus = traceStatusToRunStatus(trace.status);
   const completedCount = trace.steps.filter(s => s.status === 'success').length;
   const failedCount = trace.steps.filter(s => s.status === 'error').length;
-  const totalTokens = trace.steps.reduce(
-    (sum, s) => sum + (s.tokens?.total || 0),
-    0,
-  );
+  const totalTokens = trace.steps.reduce((sum, s) => sum + (s.tokens?.total || 0), 0);
+  const totalDuration = trace.totalDurationMs ?? (trace.finishedAt ? new Date(trace.finishedAt).getTime() - new Date(trace.startedAt).getTime() : undefined);
 
+  return (
+    <Box sx={{
+      display: 'flex', alignItems: 'center', gap: 2,
+      px: 2, py: 1,
+      bgcolor: '#f8f9fa', borderBottom: '1px solid #e9ecef',
+      flexShrink: 0,
+    }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <StatusIcon status={normStatus} size={20} />
+        <Typography sx={{ fontWeight: 800, fontSize: 13 }}>
+          {trace.agentName} — Run #{traceIndex}
+        </Typography>
+        <Chip
+          label={normStatus}
+          size="small"
+          sx={{
+            fontWeight: 700, fontSize: 10, height: 20,
+            bgcolor: normStatus === 'completed' ? '#dcfce7' : normStatus === 'failed' ? '#fef2f2' : '#dbeafe',
+            color: normStatus === 'completed' ? '#166534' : normStatus === 'failed' ? '#991b1b' : '#1e40af',
+            textTransform: 'capitalize',
+          }}
+        />
+      </Box>
+      <Box sx={{ flex: 1 }} />
+      <StatBadge label="Steps" value={trace.steps.length} color="#3b82f6" />
+      <StatBadge label="Completed" value={completedCount} color="#22c55e" />
+      {failedCount > 0 && <StatBadge label="Failed" value={failedCount} color="#ef4444" />}
+      {totalDuration != null && <StatBadge label="Duration" value={formatDuration(totalDuration)} color="#64748b" />}
+      {totalTokens > 0 && <StatBadge label="Tokens" value={totalTokens.toLocaleString()} color="#8b5cf6" />}
+    </Box>
+  );
+}
+
+// ─── Trace Timeline (fallback list view) ────────────────────────────────────
+
+function TraceTimeline({ trace }: { trace: AgentTrace }) {
   const stepCards: StepCardData[] = trace.steps.map(traceStepToCardData);
 
   return (
-    <Box sx={{ p: 2.5 }}>
-      <RunHeader
-        status={normStatus}
-        label={`${trace.agentName} — Run #${traceIndex}`}
-        startedAt={trace.startedAt}
-        finishedAt={trace.finishedAt}
-        stepCount={trace.steps.length}
-        completedCount={completedCount}
-        failedCount={failedCount}
-        durationMs={trace.totalDurationMs}
-        extra={
-          totalTokens > 0 ? (
-            <StatBadge label="Tokens" value={totalTokens.toLocaleString()} color="#8b5cf6" />
-          ) : undefined
-        }
-      />
-
+    <>
       {/* User request banner */}
       <Box
         sx={{
@@ -304,6 +409,6 @@ function TraceDetail({ trace, traceIndex }: { trace: AgentTrace; traceIndex: num
       </Box>
 
       <StepTimeline steps={stepCards} showCategory />
-    </Box>
+    </>
   );
 }

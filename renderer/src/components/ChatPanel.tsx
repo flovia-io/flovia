@@ -34,7 +34,7 @@ import {
   KeyboardIcon,
   FolderIcon,
 } from './icons';
-import { isCliMode, getCliProviderId, isWorkflowMode, type ChatMode } from '../types/ui.types';
+import { isCliMode, getCliProviderId, isWorkflowMode, getWorkflowId, type ChatMode } from '../types/ui.types';
 import { useAgentExecution } from '../context/AgentExecutionContext';
 import { useStreamingBridge } from '../context/StreamingBridgeContext';
 import { workflowHasAINode, type EditorWorkflow } from './workflow';
@@ -319,6 +319,122 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
         setLoading(false);
         chunkUnsub();
         doneUnsub();
+      }
+      return;
+    }
+
+    // ── Workflow mode — execute the selected workflow via the orchestrator ──
+    if (isWorkflowMode(mode)) {
+      const workflowId = getWorkflowId(mode)!;
+
+      await ensureConversation();
+      setMessages(prev => [...prev, { text, sender: 'user' }]);
+      setInput('');
+      clearFiles();
+      scrollToBottom();
+      setLoading(true);
+
+      // Placeholder bot message that gets updated with live step progress
+      setMessages(prev => [...prev, { text: '⚡ Starting workflow…', sender: 'bot', isAgentProgress: true }]);
+
+      // Track step labels for live progress display
+      const stepLog: string[] = [];
+
+      const unsub = backend.onOrchestratorEvent((event: any) => {
+        if (event.category !== 'step') return;
+        const { stepId, status } = event.data || {};
+        if (!stepId) return;
+
+        if (event.action === 'started' && status === 'running') {
+          // Find node label from the workflow list (best-effort)
+          stepLog.push(`⏳ Running step…`);
+        } else if (event.action === 'completed') {
+          if (stepLog.length > 0) stepLog[stepLog.length - 1] = `✓ ${stepLog[stepLog.length - 1].replace(/^⏳\s*/, '')}`;
+        } else if (event.type === 'chunk') {
+          // Live LLM/agent output — show the latest chunk
+          const { accumulated } = event.data || {};
+          if (accumulated) {
+            setMessages(prev => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                text: accumulated,
+                sender: 'bot',
+                isAgentProgress: true,
+              };
+              return updated;
+            });
+            scrollToBottom();
+            return;
+          }
+        }
+
+        const progressText = stepLog.join('\n') || '⚡ Running workflow…';
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { text: progressText, sender: 'bot', isAgentProgress: true };
+          return updated;
+        });
+        scrollToBottom();
+      });
+
+      try {
+        const allWfs = await backend.orchestratorListEditorWorkflows(folderPath || undefined) as EditorWorkflow[];
+        const wf = allWfs.find(w => w.id === workflowId);
+        if (!wf) throw new Error(`Workflow "${workflowId}" not found`);
+
+        const result = await backend.orchestratorExecuteWorkflow({
+          id: wf.id,
+          name: wf.name,
+          nodes: wf.nodes as unknown[],
+          edges: wf.edges as unknown[],
+          triggerInput: { message: text, timestamp: new Date().toISOString() },
+          workspacePath: folderPath || undefined,
+        });
+
+        unsub();
+
+        // Extract the most meaningful output from the completed run
+        const run = result.run as any;
+        const steps: any[] = run?.steps || [];
+        let replyText = '';
+
+        // Walk steps in reverse to find the last meaningful text output
+        for (let i = steps.length - 1; i >= 0; i--) {
+          const out = steps[i]?.output;
+          if (!out) continue;
+          if (typeof out === 'string') { replyText = out; break; }
+          if (out.text) { replyText = out.text; break; }
+          if (out.reply) { replyText = out.reply; break; }
+          if (out.data && typeof out.data === 'string') { replyText = out.data; break; }
+        }
+        if (!replyText) {
+          replyText = result.success ? '✓ Workflow completed.' : '⚠️ Workflow finished with errors.';
+        }
+
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { text: replyText, sender: 'bot' };
+          return updated;
+        });
+
+        setHistory(prev => [
+          ...prev,
+          { role: 'user', content: text },
+          { role: 'assistant', content: replyText },
+        ]);
+      } catch (err: any) {
+        unsub();
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            text: `⚠️ Workflow error: ${err.message || 'Unknown error'}`,
+            sender: 'bot',
+          };
+          return updated;
+        });
+      } finally {
+        setLoading(false);
+        scrollToBottom();
       }
       return;
     }

@@ -12,7 +12,8 @@
 export type WorkflowNodeType =
   | 'trigger' | 'action' | 'llm' | 'decision' | 'transform'
   | 'human' | 'output' | 'parallel' | 'loop' | 'delay'
-  | 'httpRequest' | 'splitOut' | 'developer';
+  | 'httpRequest' | 'splitOut' | 'developer'
+  | 'codeRunner' | 'subWorkflow' | 'batchProcessor';
 
 // ─── Connector Trigger Definition (mirrors core/connector.ts) ───────────────
 
@@ -41,6 +42,9 @@ export const NODE_PALETTE = [
   { type: 'httpRequest', label: 'HTTP Request', icon: '🌐', color: '#2563eb', description: 'Make an HTTP request' },
   { type: 'splitOut', label: 'Split Out', icon: '⤴️', color: '#7c3aed', description: 'Split array into items' },
   { type: 'developer', label: 'Developer Agent', icon: '👨‍💻', color: '#059669', description: 'AI agent with file tools (read, write, search, terminal)' },
+  { type: 'codeRunner', label: 'Code Runner', icon: '⚙️', color: '#7c3aed', description: 'Run JS, Shell, or Python code inline with live output' },
+  { type: 'subWorkflow', label: 'Sub-Workflow', icon: '🔁', color: '#4f46e5', description: 'Embed another workflow as a single node' },
+  { type: 'batchProcessor', label: 'Batch AI', icon: '📦', color: '#0891b2', description: 'Run an AI prompt over every item in an array' },
 ] as const;
 
 export type NodePaletteEntry = typeof NODE_PALETTE[number];

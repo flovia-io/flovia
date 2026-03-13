@@ -24,6 +24,8 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
+import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
+import BuildIcon from '@mui/icons-material/Build';
 
 // ─── Status Colors (unified palette) ────────────────────────────────────────
 
@@ -363,6 +365,83 @@ export function StatBadge({ label, value, color }: { label: string; value: strin
   );
 }
 
+// ─── Agent Trace Section ─────────────────────────────────────────────────────
+
+function AgentTraceSection({ trace }: { trace: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Box sx={{ mb: 1.5 }}>
+      <Box
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5, cursor: 'pointer' }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <BuildIcon sx={{ fontSize: 12, color: '#8b5cf6' }} />
+        <Typography variant="caption" sx={{ color: '#8b5cf6', fontWeight: 700, fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>
+          Agent Trace
+        </Typography>
+        <Chip label={trace.length} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#8b5cf615', color: '#8b5cf6' }} />
+        {open ? <ExpandLessIcon sx={{ fontSize: 14, color: '#8b5cf6' }} /> : <ExpandMoreIcon sx={{ fontSize: 14, color: '#8b5cf6' }} />}
+      </Box>
+      <Collapse in={open}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {trace.map((line, i) => (
+            <Chip
+              key={i}
+              label={line}
+              size="small"
+              sx={{
+                height: 'auto',
+                borderRadius: 1,
+                bgcolor: '#1e1b2e',
+                color: '#c4b5fd',
+                fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                fontSize: 10,
+                fontWeight: 500,
+                justifyContent: 'flex-start',
+                px: 0.5,
+                '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 },
+              }}
+            />
+          ))}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+// ─── Files Changed Section ───────────────────────────────────────────────────
+
+function FilesChangedSection({ files }: { files: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Box sx={{ mb: 1.5 }}>
+      <Box
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5, cursor: 'pointer' }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <InsertDriveFileIcon sx={{ fontSize: 12, color: '#06b6d4' }} />
+        <Typography variant="caption" sx={{ color: '#06b6d4', fontWeight: 700, fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>
+          Files Changed
+        </Typography>
+        <Chip label={files.length} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#06b6d415', color: '#06b6d4' }} />
+        {open ? <ExpandLessIcon sx={{ fontSize: 14, color: '#06b6d4' }} /> : <ExpandMoreIcon sx={{ fontSize: 14, color: '#06b6d4' }} />}
+      </Box>
+      <Collapse in={open}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {files.map((file, i) => (
+            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, py: 0.4, px: 1, bgcolor: '#f0fdf4', borderRadius: 1, border: '1px solid #bbf7d0' }}>
+              <InsertDriveFileIcon sx={{ fontSize: 11, color: '#16a34a' }} />
+              <Typography sx={{ fontSize: 11, fontFamily: '"JetBrains Mono", monospace', color: '#15803d', fontWeight: 500 }}>
+                {file}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
+
 // ─── Step Card (timeline node with expandable input/output) ─────────────────
 
 export interface StepCardData {
@@ -524,6 +603,15 @@ export function StepCard({
             )}
             {step.output != null && (
               <DataBlock label="Output" data={step.output} color="#22c55e" />
+            )}
+            {/* Agent Trace — shown when output.trace is an array of tool call strings */}
+            {Array.isArray((step.output as Record<string, unknown>)?.trace) && (
+              <AgentTraceSection trace={(step.output as Record<string, unknown>).trace as string[]} />
+            )}
+            {/* Files Changed — shown when output.filesChanged has entries */}
+            {Array.isArray((step.output as Record<string, unknown>)?.filesChanged) &&
+              ((step.output as Record<string, unknown>).filesChanged as string[]).length > 0 && (
+              <FilesChangedSection files={(step.output as Record<string, unknown>).filesChanged as string[]} />
             )}
           </Box>
         </Collapse>

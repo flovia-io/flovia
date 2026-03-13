@@ -6,6 +6,10 @@
  *
  * Also bridges to the orchestrator event bus so that agent runs
  * are visible in the WorkflowEditor execution log.
+ *
+ * NOTE: State updaters must be pure (no side effects inside setTraces callbacks)
+ * because React 18 Strict Mode invokes them twice and discards the first result.
+ * All ref mutations are done BEFORE calling the state updater.
  */
 import { useState, useCallback, useRef } from 'react';
 import { useBackend } from '../context/BackendContext';
@@ -36,7 +40,10 @@ export function useAgentTrace() {
       status: 'running',
       startedAt: new Date().toISOString(),
     };
+
+    // Update ref BEFORE state update (so subsequent calls see current trace)
     traceRef.current = trace;
+
     setTraces(prev => [trace, ...prev]);
     setActiveTraceId(id);
 
@@ -61,6 +68,9 @@ export function useAgentTrace() {
     summary: string,
     input?: unknown,
   ): string => {
+    const currentTraceId = traceRef.current?.id;
+    if (!currentTraceId) return '';
+
     const stepId = nextStepId();
     const step: TraceStep = {
       id: stepId,
@@ -74,96 +84,109 @@ export function useAgentTrace() {
       timestamp: new Date().toISOString(),
     };
 
-    setTraces(prev => prev.map(t => {
-      if (t.id !== traceRef.current?.id) return t;
-      const updated = { ...t, steps: [...t.steps, step] };
-      traceRef.current = updated;
-      return updated;
-    }));
+    // Update ref synchronously BEFORE the state update (no mutation inside updater)
+    if (traceRef.current) {
+      traceRef.current = { ...traceRef.current, steps: [...traceRef.current.steps, step] };
+    }
+
+    setTraces(prev => prev.map(t =>
+      t.id === currentTraceId
+        ? { ...t, steps: [...t.steps, step] }
+        : t
+    ));
 
     return stepId;
   }, []);
 
   /** Update an existing step (e.g. when it completes) */
   const updateStep = useCallback((stepId: string, updates: Partial<TraceStep>) => {
-    setTraces(prev => prev.map(t => {
-      if (t.id !== traceRef.current?.id) return t;
-      const updated = {
-        ...t,
-        steps: t.steps.map(s => s.id === stepId ? { ...s, ...updates } : s),
+    const currentTraceId = traceRef.current?.id;
+    if (!currentTraceId) return;
+
+    // Update ref synchronously BEFORE the state update
+    if (traceRef.current) {
+      traceRef.current = {
+        ...traceRef.current,
+        steps: traceRef.current.steps.map(s => s.id === stepId ? { ...s, ...updates } : s),
       };
-      traceRef.current = updated;
-      return updated;
-    }));
+    }
+
+    setTraces(prev => prev.map(t =>
+      t.id === currentTraceId
+        ? { ...t, steps: t.steps.map(s => s.id === stepId ? { ...s, ...updates } : s) }
+        : t
+    ));
   }, []);
 
   /** Complete a step with success */
   const completeStep = useCallback((stepId: string, output?: unknown, extras?: Partial<TraceStep>) => {
+    const stepTimestamp = traceRef.current?.steps.find(s => s.id === stepId)?.timestamp;
     updateStep(stepId, {
       status: 'success' as TraceStepStatus,
       output,
-      durationMs: Date.now() - new Date(
-        traceRef.current?.steps.find(s => s.id === stepId)?.timestamp || Date.now()
-      ).getTime(),
+      durationMs: Date.now() - new Date(stepTimestamp || Date.now()).getTime(),
       ...extras,
     });
   }, [updateStep]);
 
   /** Fail a step */
   const failStep = useCallback((stepId: string, error: string) => {
+    const stepTimestamp = traceRef.current?.steps.find(s => s.id === stepId)?.timestamp;
     updateStep(stepId, {
       status: 'error' as TraceStepStatus,
       error,
-      durationMs: Date.now() - new Date(
-        traceRef.current?.steps.find(s => s.id === stepId)?.timestamp || Date.now()
-      ).getTime(),
+      durationMs: Date.now() - new Date(stepTimestamp || Date.now()).getTime(),
     });
   }, [updateStep]);
 
   /** Finish the entire trace */
   const finishTrace = useCallback((status: 'success' | 'error' = 'success') => {
-    setTraces(prev => prev.map(t => {
-      if (t.id !== traceRef.current?.id) return t;
-      const finished = {
-        ...t,
-        status,
-        finishedAt: new Date().toISOString(),
-        totalDurationMs: Date.now() - new Date(t.startedAt).getTime(),
-      };
+    const currentTrace = traceRef.current;
+    if (!currentTrace) return;
 
-      // Also mark any still-running steps as completed/failed
-      finished.steps = finished.steps.map(s =>
-        s.status === 'running'
-          ? {
-              ...s,
-              status: (status === 'success' ? 'success' : 'error') as TraceStepStatus,
-              durationMs: s.durationMs ?? (Date.now() - new Date(s.timestamp).getTime()),
-              ...(status === 'error' ? { error: 'Agent run stopped' } : {}),
-            }
-          : s
-      );
+    // Clear the ref BEFORE the state update so re-invocations (React Strict Mode)
+    // don't accidentally process the same trace twice with a nulled-out ref.
+    traceRef.current = null;
 
-      // Bridge: update execution run with final status & steps
-      backend.orchestratorSaveRun({
-        id: finished.id,
-        workflowId: `agent:${finished.agentId}`,
-        status: status === 'success' ? 'completed' : 'failed',
-        startedAt: finished.startedAt,
-        finishedAt: finished.finishedAt,
-        steps: finished.steps.map(s => ({
-          nodeId: s.nodeId,
-          label: s.nodeLabel,
-          status: s.status === 'success' ? 'completed' : s.status === 'error' ? 'failed' : s.status,
-          durationMs: s.durationMs,
-          input: s.input,
-          output: s.output,
-          error: s.error,
-        })),
-      }).catch(() => { /* ignore */ });
+    const finishedAt = new Date().toISOString();
+    const totalDurationMs = Date.now() - new Date(currentTrace.startedAt).getTime();
 
-      traceRef.current = null;
-      return finished;
-    }));
+    // Build the final steps (mark any still-running steps as done)
+    const finalSteps = currentTrace.steps.map(s =>
+      s.status === 'running'
+        ? {
+            ...s,
+            status: (status === 'success' ? 'success' : 'error') as TraceStepStatus,
+            durationMs: s.durationMs ?? (Date.now() - new Date(s.timestamp).getTime()),
+            ...(status === 'error' ? { error: 'Agent run stopped' } : {}),
+          }
+        : s
+    );
+
+    // Pure state update — no side effects, uses captured values not the ref
+    setTraces(prev => prev.map(t =>
+      t.id === currentTrace.id
+        ? { ...t, status, finishedAt, totalDurationMs, steps: finalSteps }
+        : t
+    ));
+
+    // Bridge: update execution run with final status & steps (outside the updater)
+    backend.orchestratorSaveRun({
+      id: currentTrace.id,
+      workflowId: `agent:${currentTrace.agentId}`,
+      status: status === 'success' ? 'completed' : 'failed',
+      startedAt: currentTrace.startedAt,
+      finishedAt,
+      steps: finalSteps.map(s => ({
+        nodeId: s.nodeId,
+        label: s.nodeLabel,
+        status: s.status === 'success' ? 'completed' : s.status === 'error' ? 'failed' : s.status,
+        durationMs: s.durationMs,
+        input: s.input,
+        output: s.output,
+        error: s.error,
+      })),
+    }).catch(() => { /* ignore */ });
   }, [backend]);
 
   /** Clear all traces (optionally finishing any running trace first) */

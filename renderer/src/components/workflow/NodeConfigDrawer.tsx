@@ -6,8 +6,14 @@
  *  2. Action picker (actions from the selected connector)
  *  3. Input parameter fields (from the action's inputSchema)
  *  4. Execute button → calls connectorExecute → shows output + item count
+ *
+ * The Output tab now shows:
+ *  - Live streaming output while a node is running
+ *  - Completed output with structured data view
+ *  - Errors with red error boxes (n8n-style)
+ *  - Execution logs/details
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
@@ -36,9 +42,15 @@ import ListItemText from '@mui/material/ListItemText';
 import ListSubheader from '@mui/material/ListSubheader';
 
 import { useBackend } from '../../context/BackendContext';
-import { DataBlock, StatusIcon, countDataItems } from '../shared/ExecutionViewParts';
+import { DataBlock, StatusIcon, countDataItems, formatDuration } from '../shared/ExecutionViewParts';
 import type { WfNodeData } from './workflow.types';
 import type { ConnectorTriggerDef } from './workflow.constants';
+
+interface UpstreamNode {
+  id: string;
+  label: string;
+  nodeType: string;
+}
 
 interface Props {
   open: boolean;
@@ -46,13 +58,15 @@ interface Props {
   onClose: () => void;
   onUpdateNodeData: (nodeId: string, updates: Partial<WfNodeData>) => void;
   onDeleteNode: (nodeId: string) => void;
+  upstreamNodes?: UpstreamNode[];
 }
 
-export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDeleteNode }: Props) {
+export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDeleteNode, upstreamNodes = [] }: Props) {
   const backend = useBackend();
   const [execResult, setExecResult] = useState<{ success: boolean; data?: unknown; error?: string; itemCount?: number } | null>(null);
   const [executing, setExecuting] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
+  const outputScrollRef = useRef<HTMLDivElement>(null);
 
   // Reset output when node changes
   useEffect(() => {
@@ -60,9 +74,29 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
     setActiveTab(0);
   }, [node?.id]);
 
+  // Auto-scroll output when live output changes
+  useEffect(() => {
+    if (outputScrollRef.current && node?.data?.liveOutput) {
+      outputScrollRef.current.scrollTop = outputScrollRef.current.scrollHeight;
+    }
+  }, [node?.data?.liveOutput]);
+
+  // Auto-switch to Output tab when node starts running
+  useEffect(() => {
+    if (node?.data?.status === 'running') {
+      setActiveTab(1);
+    }
+  }, [node?.data?.status]);
+
   if (!node) return null;
 
   const cfg = node.data.config as Record<string, unknown>;
+  const isRunning = node.data.status === 'running';
+  const isFailed = node.data.status === 'failed';
+  const isCompleted = node.data.status === 'completed';
+  const hasLiveOutput = !!node.data.liveOutput;
+  const hasError = !!node.data.error;
+  const hasOutput = !!node.data.output;
 
   // ── Execute the node for real ──
   const handleExecute = async () => {
@@ -152,7 +186,27 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography sx={{ fontSize: 24 }}>{node.data.icon}</Typography>
-            <Typography variant="subtitle1" fontWeight={700}>{node.data.label}</Typography>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={700}>{node.data.label}</Typography>
+              {node.data.status && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+                  <StatusIcon status={node.data.status} size={14} />
+                  <Typography variant="caption" sx={{
+                    color: isRunning ? '#3b82f6' : isFailed ? '#ef4444' : isCompleted ? '#22c55e' : '#94a3b8',
+                    fontWeight: 600,
+                    fontSize: 11,
+                    textTransform: 'capitalize',
+                  }}>
+                    {node.data.status}
+                  </Typography>
+                  {node.data.durationMs != null && (
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: 10, ml: 0.5 }}>
+                      · {formatDuration(node.data.durationMs)}
+                    </Typography>
+                  )}
+                </Box>
+              )}
+            </Box>
           </Box>
           <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
         </Box>
@@ -167,6 +221,13 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
             label={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 Output
+                {isRunning && (
+                  <Box sx={{
+                    width: 6, height: 6, borderRadius: '50%', bgcolor: '#3b82f6',
+                    animation: 'pulse 1.5s infinite',
+                    '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.3 } },
+                  }} />
+                )}
                 {execResult?.itemCount != null && (
                   <Chip
                     label={execResult.itemCount}
@@ -174,6 +235,9 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
                     color={execResult.success ? 'success' : 'error'}
                     sx={{ height: 18, fontSize: '0.65rem' }}
                   />
+                )}
+                {!execResult && hasError && (
+                  <Chip label="!" size="small" color="error" sx={{ height: 18, fontSize: '0.65rem', minWidth: 20 }} />
                 )}
               </Box>
             }
@@ -199,28 +263,175 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
             {/* Type-specific config */}
             <TriggerConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
             <HttpRequestConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
-            <LlmConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
+            <LlmConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} upstreamNodes={upstreamNodes} />
             <DecisionConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
             <ActionConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
             <DeveloperConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
+            <CodeRunnerConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
+            <SubWorkflowConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} />
+            <BatchProcessorConfig node={node} cfg={cfg} onUpdate={onUpdateNodeData} upstreamNodes={upstreamNodes} />
           </Box>
         )}
 
         {/* ── Output Tab ── */}
         {activeTab === 1 && (
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
-            {!execResult && (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                No output yet. Click "Execute step" to run this node.
-              </Typography>
+          <Box ref={outputScrollRef} sx={{ flex: 1, overflow: 'auto' }}>
+            {/* ── Live streaming output (while node is running) ── */}
+            {isRunning && (
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Box sx={{
+                    width: 8, height: 8, borderRadius: '50%', bgcolor: '#3b82f6',
+                    animation: 'pulse 1.5s infinite',
+                    '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.3 } },
+                  }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#3b82f6', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Running…
+                  </Typography>
+                </Box>
+                {hasLiveOutput ? (
+                  <Box sx={{
+                    bgcolor: '#0f172a',
+                    borderRadius: 2,
+                    border: '1px solid #1e3a5f',
+                    overflow: 'hidden',
+                  }}>
+                    <Box sx={{
+                      display: 'flex', alignItems: 'center', px: 1.5, py: 0.5,
+                      bgcolor: '#1e293b', borderBottom: '1px solid #334155',
+                    }}>
+                      <Typography sx={{ fontSize: 9, fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        Live Output
+                      </Typography>
+                    </Box>
+                    <Box sx={{ maxHeight: 300, overflow: 'auto', px: 1.5, py: 1 }}>
+                      <Typography
+                        component="pre"
+                        sx={{
+                          fontSize: 11,
+                          fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          color: '#e2e8f0',
+                          lineHeight: 1.6,
+                          m: 0,
+                        }}
+                      >
+                        {String(node.data.liveOutput)}
+                        <Box component="span" sx={{
+                          display: 'inline-block', width: 7, height: 14, bgcolor: '#3b82f6',
+                          ml: 0.25, animation: 'blink 1s step-end infinite', verticalAlign: 'text-bottom',
+                          '@keyframes blink': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0 } },
+                        }} />
+                      </Typography>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Box sx={{ py: 3, textAlign: 'center' }}>
+                    <CircularProgress size={24} sx={{ mb: 1 }} />
+                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                      Waiting for output…
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
             )}
 
-            {execResult && !execResult.success && (
-              <Alert severity="error" sx={{ mb: 2, fontSize: 12 }}>
-                {execResult.error || 'Execution failed'}
-              </Alert>
+            {/* ── Error display (n8n-style red error box) ── */}
+            {(hasError || (execResult && !execResult.success)) && (
+              <Box sx={{
+                mb: 2,
+                borderRadius: 2,
+                border: '1px solid #fca5a5',
+                overflow: 'hidden',
+                bgcolor: '#fef2f2',
+              }}>
+                <Box sx={{
+                  display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1,
+                  bgcolor: '#fee2e2', borderBottom: '1px solid #fca5a5',
+                }}>
+                  <Alert severity="error" icon={false} sx={{ p: 0, bgcolor: 'transparent', '& .MuiAlert-message': { p: 0 } }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#991b1b' }}>
+                      ⚠ Error
+                    </Typography>
+                  </Alert>
+                </Box>
+                <Box sx={{ px: 1.5, py: 1.5 }}>
+                  <Typography sx={{
+                    fontSize: 12,
+                    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                    color: '#b91c1c',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    lineHeight: 1.6,
+                  }}>
+                    {node.data.error || execResult?.error || 'Execution failed'}
+                  </Typography>
+                </Box>
+              </Box>
             )}
 
+            {/* ── Completed output (from workflow execution, not manual exec) ── */}
+            {!isRunning && !execResult && hasOutput && (
+              <>
+                <Alert severity="success" sx={{ mb: 1, fontSize: 12 }}>
+                  Execution succeeded
+                  {node.data.itemCount != null && ` — ${node.data.itemCount} item${node.data.itemCount !== 1 ? 's' : ''}`}
+                </Alert>
+                <DataBlock
+                  label="Output"
+                  data={node.data.output}
+                  color="#22c55e"
+                  maxHeight={400}
+                />
+              </>
+            )}
+
+            {/* ── Completed live output (streaming finished, show final result) ── */}
+            {!isRunning && hasLiveOutput && !hasOutput && !execResult && (
+              <>
+                {isCompleted && (
+                  <Alert severity="success" sx={{ mb: 1, fontSize: 12 }}>
+                    Step completed
+                    {node.data.durationMs != null && ` in ${formatDuration(node.data.durationMs)}`}
+                  </Alert>
+                )}
+                <Box sx={{
+                  bgcolor: '#0f172a',
+                  borderRadius: 2,
+                  border: '1px solid #334155',
+                  overflow: 'hidden',
+                  mb: 2,
+                }}>
+                  <Box sx={{
+                    display: 'flex', alignItems: 'center', px: 1.5, py: 0.5,
+                    bgcolor: '#1e293b', borderBottom: '1px solid #334155',
+                  }}>
+                    <Typography sx={{ fontSize: 9, fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Output
+                    </Typography>
+                  </Box>
+                  <Box sx={{ maxHeight: 400, overflow: 'auto', px: 1.5, py: 1 }}>
+                    <Typography
+                      component="pre"
+                      sx={{
+                        fontSize: 11,
+                        fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        color: '#e2e8f0',
+                        lineHeight: 1.6,
+                        m: 0,
+                      }}
+                    >
+                      {String(node.data.liveOutput)}
+                    </Typography>
+                  </Box>
+                </Box>
+              </>
+            )}
+
+            {/* ── Manual execution result (from "Execute step" button) ── */}
             {execResult && execResult.success && (
               <>
                 <Alert severity="success" sx={{ mb: 1, fontSize: 12 }}>
@@ -236,6 +447,43 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
                 />
               </>
             )}
+
+            {/* ── Execution details (duration, item count) ── */}
+            {!isRunning && (node.data.durationMs != null || node.data.itemCount != null) && (
+              <Box sx={{
+                mt: 2, p: 1.5, bgcolor: '#f8fafc', borderRadius: 2,
+                border: '1px solid #e2e8f0',
+              }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, mb: 1 }}>
+                  Execution Details
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  {node.data.durationMs != null && (
+                    <Box sx={{ textAlign: 'center', flex: 1 }}>
+                      <Typography sx={{ fontSize: 16, fontWeight: 800, color: '#334155' }}>
+                        {formatDuration(node.data.durationMs)}
+                      </Typography>
+                      <Typography sx={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>Duration</Typography>
+                    </Box>
+                  )}
+                  {node.data.itemCount != null && (
+                    <Box sx={{ textAlign: 'center', flex: 1 }}>
+                      <Typography sx={{ fontSize: 16, fontWeight: 800, color: '#334155' }}>
+                        {node.data.itemCount}
+                      </Typography>
+                      <Typography sx={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>Items</Typography>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+            )}
+
+            {/* ── No output yet ── */}
+            {!isRunning && !execResult && !hasLiveOutput && !hasOutput && !hasError && (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                No output yet. Click "Execute step" to run this node, or execute the full workflow.
+              </Typography>
+            )}
           </Box>
         )}
 
@@ -246,11 +494,11 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
           variant="contained"
           size="small"
           startIcon={executing ? <CircularProgress size={14} color="inherit" /> : <PlayArrowIcon />}
-          disabled={executing}
+          disabled={executing || isRunning}
           sx={{ mb: 1, borderRadius: 6 }}
           onClick={handleExecute}
         >
-          {executing ? 'Executing…' : 'Execute step'}
+          {executing || isRunning ? 'Executing…' : 'Execute step'}
         </Button>
 
         <Button
@@ -274,6 +522,7 @@ interface ConfigProps {
   node: Node<WfNodeData>;
   cfg: Record<string, unknown>;
   onUpdate: (nodeId: string, updates: Partial<WfNodeData>) => void;
+  upstreamNodes?: UpstreamNode[];
 }
 
 function TriggerConfig({ node, cfg, onUpdate }: ConfigProps) {
@@ -535,7 +784,7 @@ function HttpRequestConfig({ node, cfg, onUpdate }: ConfigProps) {
   );
 }
 
-function LlmConfig({ node, cfg, onUpdate }: ConfigProps) {
+function LlmConfig({ node, cfg, onUpdate, upstreamNodes = [] }: ConfigProps) {
   const backend = useBackend();
   const [savedPrompts, setSavedPrompts] = useState<Record<string, string> | null>(null);
 
@@ -612,8 +861,12 @@ function LlmConfig({ node, cfg, onUpdate }: ConfigProps) {
           config: { ...cfg, prompt: e.target.value },
         })}
         sx={{ mb: 2, '& textarea': { fontFamily: '"JetBrains Mono", monospace', fontSize: 11 } }}
-        placeholder="{{ $json.prompt }}"
-        helperText="Use {{ $json.fieldName }} to reference data from previous nodes."
+        placeholder="{{input}} or {{nodes.NODE_ID.output}}"
+        helperText={
+          upstreamNodes.length > 0
+            ? `Reference upstream nodes: ${upstreamNodes.map(n => `{{nodes.${n.id}.output}}`).join(', ')}`
+            : 'Use {{input}} for the previous node\'s output.'
+        }
       />
 
       <FormControl size="small" fullWidth sx={{ mb: 2 }}>
@@ -1109,6 +1362,180 @@ function DeveloperConfig({ node, cfg, onUpdate }: ConfigProps) {
         placeholder="(optional) Custom system prompt for this agent"
         helperText="Load from saved prompts above, or write a custom prompt."
         sx={{ mb: 2, '& textarea': { fontFamily: '"JetBrains Mono", monospace', fontSize: 11 } }}
+      />
+    </>
+  );
+}
+
+// ─── Code Runner Config ───────────────────────────────────────────────────────
+
+function CodeRunnerConfig({ node, cfg, onUpdate }: ConfigProps) {
+  if (node.data.nodeType !== 'codeRunner') return null;
+  return (
+    <>
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Language</InputLabel>
+        <Select
+          value={(cfg.language as string) || 'shell'}
+          label="Language"
+          onChange={(e) => onUpdate(node.id, {
+            config: { ...cfg, language: e.target.value },
+            subtitle: e.target.value,
+          })}
+        >
+          <MenuItem value="shell">Shell (sh)</MenuItem>
+          <MenuItem value="javascript">JavaScript (Node.js)</MenuItem>
+          <MenuItem value="python">Python 3</MenuItem>
+        </Select>
+      </FormControl>
+
+      <TextField
+        label="Code"
+        size="small"
+        fullWidth
+        multiline
+        rows={8}
+        value={(cfg.code as string) || ''}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, code: e.target.value } })}
+        placeholder={
+          (cfg.language as string) === 'javascript'
+            ? 'console.log("hello from workflow");'
+            : (cfg.language as string) === 'python'
+            ? 'print("hello from workflow")'
+            : 'echo "hello from workflow"'
+        }
+        helperText="Live output streams to the node bubble during execution."
+        sx={{ mb: 2, '& textarea': { fontFamily: '"JetBrains Mono", monospace', fontSize: 11 } }}
+      />
+
+      <TextField
+        label="Working Directory (optional)"
+        size="small"
+        fullWidth
+        value={(cfg.cwd as string) || ''}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, cwd: e.target.value } })}
+        placeholder="/workspace or leave blank for workspace root"
+        sx={{ mb: 2 }}
+      />
+
+      <TextField
+        label="Timeout (ms)"
+        size="small"
+        type="number"
+        fullWidth
+        value={(cfg.timeout as number) || 30000}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, timeout: parseInt(e.target.value) || 30000 } })}
+        sx={{ mb: 2 }}
+      />
+    </>
+  );
+}
+
+// ─── Sub-Workflow Config ──────────────────────────────────────────────────────
+
+function SubWorkflowConfig({ node, cfg, onUpdate }: ConfigProps) {
+  const backend = useBackend();
+  const [workflows, setWorkflows] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    if (node.data.nodeType !== 'subWorkflow') return;
+    (async () => {
+      try {
+        const all = await backend.orchestratorListEditorWorkflows() as Array<{ id: string; name?: string }>;
+        setWorkflows(all.filter(w => !w.id.startsWith('builtin:')).map(w => ({ id: w.id, name: w.name || w.id })));
+      } catch { /* ignore */ }
+    })();
+  }, [backend, node.data.nodeType]);
+
+  if (node.data.nodeType !== 'subWorkflow') return null;
+
+  const selected = workflows.find(w => w.id === (cfg.workflowId as string));
+
+  return (
+    <>
+      <Autocomplete
+        size="small"
+        options={workflows}
+        getOptionLabel={(w) => w.name}
+        value={selected || null}
+        onChange={(_, w) => onUpdate(node.id, {
+          config: { ...cfg, workflowId: w?.id || '' },
+          subtitle: w?.name || '',
+        })}
+        renderInput={(params) => (
+          <TextField {...params} label="Workflow" placeholder="Select a saved workflow…" />
+        )}
+        sx={{ mb: 2 }}
+      />
+
+      <TextField
+        label="Trigger Input (optional)"
+        size="small"
+        fullWidth
+        value={(cfg.triggerInput as string) || ''}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, triggerInput: e.target.value } })}
+        placeholder="{{input}} or {{nodes.NODE_ID.output}}"
+        helperText="Expression passed as the sub-workflow's trigger input. Defaults to the current node's input."
+        sx={{ mb: 2 }}
+      />
+    </>
+  );
+}
+
+// ─── Batch Processor Config ───────────────────────────────────────────────────
+
+function BatchProcessorConfig({ node, cfg, onUpdate, upstreamNodes = [] }: ConfigProps) {
+  if (node.data.nodeType !== 'batchProcessor') return null;
+  return (
+    <>
+      <TextField
+        label="Prompt per Item"
+        size="small"
+        fullWidth
+        multiline
+        rows={4}
+        value={(cfg.prompt as string) || ''}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, prompt: e.target.value } })}
+        placeholder="Summarize the following item:\n\n{{item}}"
+        helperText={
+          upstreamNodes.length > 0
+            ? `Use {{item}} for each array element, {{index}} for position. Upstream: ${upstreamNodes.map(n => n.label).join(', ')}`
+            : 'Use {{item}} for each array element, {{index}} for its position.'
+        }
+        sx={{ mb: 2, '& textarea': { fontFamily: '"JetBrains Mono", monospace', fontSize: 11 } }}
+      />
+
+      <TextField
+        label="System Prompt (optional)"
+        size="small"
+        fullWidth
+        multiline
+        rows={2}
+        value={(cfg.systemPrompt as string) || ''}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, systemPrompt: e.target.value } })}
+        sx={{ mb: 2 }}
+      />
+
+      <TextField
+        label="Concurrency"
+        size="small"
+        type="number"
+        fullWidth
+        value={(cfg.concurrency as number) || 3}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, concurrency: Math.max(1, Math.min(10, parseInt(e.target.value) || 3)) } })}
+        helperText="How many items to process in parallel (1–10)"
+        sx={{ mb: 2 }}
+      />
+
+      <TextField
+        label="Input Array Path (optional)"
+        size="small"
+        fullWidth
+        value={(cfg.inputPath as string) || ''}
+        onChange={(e) => onUpdate(node.id, { config: { ...cfg, inputPath: e.target.value } })}
+        placeholder="results or data.items"
+        helperText="Dot-path to extract the array from input. Leave blank to use root array."
+        sx={{ mb: 2 }}
       />
     </>
   );

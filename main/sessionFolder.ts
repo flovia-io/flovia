@@ -74,6 +74,8 @@ export function createSessionFolder(title?: string): SessionFolderResult {
 
     // If this is a workflow project, create .flovia/workflows/ with a starter workflow JSON
     const isWorkflow = title?.includes('workflow');
+    // For uploaded-files sessions, don't create README either — files will be added after
+    const isUpload = title?.includes('uploaded-files');
     if (isWorkflow) {
       const wfDir = path.join(folderPath, '.flovia', 'workflows');
       fs.mkdirSync(wfDir, { recursive: true });
@@ -127,8 +129,8 @@ export function createSessionFolder(title?: string): SessionFolderResult {
         JSON.stringify(starterWorkflow, null, 2),
         'utf-8'
       );
-    } else {
-      // For non-workflow sessions, just create a marker file
+    } else if (!isUpload) {
+      // For non-workflow, non-upload sessions, just create a marker file
       const readme = `# Session: ${title || 'New Session'}\n\nCreated at: ${new Date().toISOString()}\n`;
       fs.writeFileSync(path.join(folderPath, 'README.md'), readme, 'utf-8');
     }

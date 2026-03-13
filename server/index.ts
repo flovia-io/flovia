@@ -93,6 +93,7 @@ app.get('/api/connectors/:id', (req, res) => {
     metadata: connector.metadata,
     configFields: connector.configFields,
     actions: connector.actions,
+    triggers: connector.triggers || [],
     state: registry.getState(req.params.id),
   });
 });

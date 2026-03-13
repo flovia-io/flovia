@@ -42,12 +42,12 @@ import Tooltip from '@mui/material/Tooltip';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
-import InputLabel from '@mui/material/InputLabel';
 import TextField from '@mui/material/TextField';
 import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import LinearProgress from '@mui/material/LinearProgress';
+import Autocomplete from '@mui/material/Autocomplete';
 
 import AddIcon from '@mui/icons-material/Add';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -56,8 +56,20 @@ import SaveIcon from '@mui/icons-material/Save';
 import SendIcon from '@mui/icons-material/Send';
 import ChatIcon from '@mui/icons-material/Chat';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import LockIcon from '@mui/icons-material/Lock';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import EditIcon from '@mui/icons-material/Edit';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemText from '@mui/material/ListItemText';
+import ListItemIcon from '@mui/material/ListItemIcon';
 
 import { useBackend } from '../context/BackendContext';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 import {
   WorkflowNode,
@@ -65,10 +77,14 @@ import {
   NodePaletteDrawer,
   ExecutionsPanel,
   getPaletteForType,
+  BUILTIN_TEMPLATES,
+  cloneTemplate,
+  workflowHasAINode,
   type WfNodeData,
   type EditorWorkflow,
   type RunLog,
   type NodePaletteEntry,
+  type WorkflowTemplate,
 } from './workflow';
 
 // ─── ReactFlow node type registration ───────────────────────────────────────
@@ -88,6 +104,12 @@ const genWorkflowId = () => `wf-${Date.now()}-${Math.random().toString(36).slice
 
 export default function WorkflowEditor() {
   const backend = useBackend();
+  const { folderPath, activeTabPath } = useWorkspace();
+
+  // Derive the requested workflow ID from the tab path (e.g. "workflow:builtin:chat")
+  const tabWorkflowId = activeTabPath?.startsWith('workflow:')
+    ? activeTabPath.replace('workflow:', '') || null
+    : null;
 
   // State
   const [workflows, setWorkflows] = useState<EditorWorkflow[]>([]);
@@ -104,7 +126,14 @@ export default function WorkflowEditor() {
   const [chatInput, setChatInput] = useState('');
   const chatInputRef = useRef<HTMLInputElement>(null);
 
+  const [templateBrowserOpen, setTemplateBrowserOpen] = useState(false);
+  const [renamingWorkflow, setRenamingWorkflow] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+
   const activeWorkflow = workflows.find(w => w.id === activeWorkflowId);
+
+  // Is the active workflow a built-in (read-only)?
+  const isBuiltIn = activeWorkflowId?.startsWith('builtin:') ?? false;
 
   // Check if current workflow has a chat-input trigger
   const hasChatTrigger = useMemo(() =>
@@ -112,20 +141,45 @@ export default function WorkflowEditor() {
     [nodes]
   );
 
-  // ── Load workflows on mount ──
+  // ── Load workflows on mount (merge built-ins + saved) ──
   useEffect(() => {
     (async () => {
       try {
-        const saved = await backend.orchestratorListEditorWorkflows() as EditorWorkflow[];
-        setWorkflows(saved);
-        if (saved.length > 0) {
-          setActiveWorkflowId(saved[0].id);
-          setNodes(saved[0].nodes);
-          setEdges(saved[0].edges);
+        const saved = await backend.orchestratorListEditorWorkflows(folderPath || undefined) as EditorWorkflow[];
+        // Merge built-in template workflows (if not already overridden by a saved one)
+        const builtInWfs = BUILTIN_TEMPLATES.map(t => t.workflow);
+        const merged = [
+          ...builtInWfs.filter(bw => !saved.some(s => s.id === bw.id)),
+          ...saved,
+        ];
+        setWorkflows(merged);
+
+        // If a specific workflow was requested via tab, open it; otherwise default to first
+        const requestedId = tabWorkflowId && tabWorkflowId !== 'new' ? tabWorkflowId : null;
+        const target = requestedId
+          ? merged.find(w => w.id === requestedId)
+          : merged[0];
+
+        if (target) {
+          setActiveWorkflowId(target.id);
+          setNodes(target.nodes);
+          setEdges(target.edges);
         }
       } catch { /* ignore */ }
     })();
-  }, []);
+  }, [tabWorkflowId]);
+
+  // ── Sync active workflow when tab switches to a different workflow ──
+  useEffect(() => {
+    if (!tabWorkflowId || tabWorkflowId === 'new' || workflows.length === 0) return;
+    if (tabWorkflowId === activeWorkflowId) return;
+    const target = workflows.find(w => w.id === tabWorkflowId);
+    if (target) {
+      setActiveWorkflowId(target.id);
+      setNodes(target.nodes);
+      setEdges(target.edges);
+    }
+  }, [tabWorkflowId, workflows]);
 
   // ── Load runs ──
   useEffect(() => {
@@ -140,28 +194,59 @@ export default function WorkflowEditor() {
   // ── Subscribe to real-time events ──
   useEffect(() => {
     const unsub = backend.onOrchestratorEvent((event: any) => {
-      if (event.category === 'step') {
-        const { stepId, status, itemCount, durationMs, error } = event.data || {};
+      if (event.category !== 'step') return;
+
+      // Live streaming chunk — update liveOutput on the node
+      if (event.type === 'chunk') {
+        const { stepId, accumulated } = event.data || {};
         if (stepId) {
           setNodes(prev => prev.map(n =>
             n.id === stepId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: status || n.data.status,
-                    ...(itemCount != null && { itemCount }),
-                    ...(durationMs != null && { durationMs }),
-                    ...(error != null && { error }),
-                  },
-                }
+              ? { ...n, data: { ...n.data, liveOutput: accumulated, outputDismissed: false } }
               : n
           ));
         }
+        return;
+      }
+
+      // Status updates (started, completed, failed)
+      const { stepId, status, itemCount, durationMs, error, output } = event.data || {};
+      if (stepId) {
+        setNodes(prev => prev.map(n =>
+          n.id === stepId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  status: status || n.data.status,
+                  ...(itemCount != null && { itemCount }),
+                  ...(durationMs != null && { durationMs }),
+                  ...(error != null && { error }),
+                  // Store structured output for the node drawer
+                  ...(output != null && { output }),
+                  // Populate liveOutput with completed step output for display
+                  ...(status === 'completed' && output != null && !n.data.outputDismissed && {
+                    liveOutput: typeof output === 'string'
+                      ? output
+                      : (output as any)?.text || (output as any)?.reply || JSON.stringify(output, null, 2),
+                  }),
+                },
+              }
+            : n
+        ));
       }
     });
     return unsub;
   }, [backend]);
+
+  // ── Keep selectedNode in sync with nodes array (so drawer sees live updates) ──
+  useEffect(() => {
+    if (!selectedNode) return;
+    const updated = nodes.find(n => n.id === selectedNode.id);
+    if (updated && updated.data !== selectedNode.data) {
+      setSelectedNode(updated);
+    }
+  }, [nodes, selectedNode]);
 
   // ── Node/Edge change handlers ──
 
@@ -212,11 +297,12 @@ export default function WorkflowEditor() {
     setActiveWorkflowId(id);
     setNodes([triggerNode]);
     setEdges([]);
-    await backend.orchestratorSaveEditorWorkflow(wf);
-  }, [workflows, backend]);
+    await backend.orchestratorSaveEditorWorkflow(wf, folderPath || undefined);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [workflows, backend, folderPath]);
 
   const saveWorkflow = useCallback(async () => {
-    if (!activeWorkflowId) return;
+    if (!activeWorkflowId || isBuiltIn) return;
     const wf: EditorWorkflow = {
       id: activeWorkflowId,
       name: activeWorkflow?.name || 'Untitled',
@@ -227,17 +313,57 @@ export default function WorkflowEditor() {
       updatedAt: new Date().toISOString(),
     };
     setWorkflows(prev => prev.map(w => w.id === activeWorkflowId ? wf : w));
-    await backend.orchestratorSaveEditorWorkflow(wf);
-  }, [activeWorkflowId, activeWorkflow, nodes, edges, backend]);
+    await backend.orchestratorSaveEditorWorkflow(wf, folderPath || undefined);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [activeWorkflowId, activeWorkflow, nodes, edges, backend, isBuiltIn, folderPath]);
 
   const deleteWorkflow = useCallback(async () => {
-    if (!activeWorkflowId) return;
+    if (!activeWorkflowId || isBuiltIn) return;
     setWorkflows(prev => prev.filter(w => w.id !== activeWorkflowId));
     await backend.orchestratorDeleteEditorWorkflow(activeWorkflowId);
     setActiveWorkflowId(workflows.length > 1 ? workflows.find(w => w.id !== activeWorkflowId)?.id || null : null);
     setNodes([]);
     setEdges([]);
-  }, [activeWorkflowId, workflows, backend]);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [activeWorkflowId, workflows, backend, isBuiltIn]);
+
+  // ── Rename active workflow ──
+  const renameWorkflow = useCallback(async (newName: string) => {
+    if (!activeWorkflowId || isBuiltIn || !newName.trim()) return;
+    const trimmed = newName.trim();
+    setWorkflows(prev => prev.map(w => w.id === activeWorkflowId ? { ...w, name: trimmed, updatedAt: new Date().toISOString() } : w));
+    // Persist
+    const wf: EditorWorkflow = {
+      id: activeWorkflowId,
+      name: trimmed,
+      description: activeWorkflow?.description,
+      nodes,
+      edges,
+      createdAt: activeWorkflow?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await backend.orchestratorSaveEditorWorkflow(wf, folderPath || undefined);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [activeWorkflowId, activeWorkflow, nodes, edges, backend, isBuiltIn, folderPath]);
+
+  // ── Clone a built-in template into a new editable workflow ──
+
+  const handleCloneTemplate = useCallback(async (template: WorkflowTemplate) => {
+    const cloned = cloneTemplate(template);
+    setWorkflows(prev => [...prev, cloned]);
+    setActiveWorkflowId(cloned.id);
+    setNodes(cloned.nodes);
+    setEdges(cloned.edges);
+    await backend.orchestratorSaveEditorWorkflow(cloned, folderPath || undefined);
+    setTemplateBrowserOpen(false);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [backend, folderPath]);
+
+  const handleCloneCurrentBuiltIn = useCallback(async () => {
+    if (!isBuiltIn || !activeWorkflowId) return;
+    const template = BUILTIN_TEMPLATES.find(t => t.id === activeWorkflowId);
+    if (template) await handleCloneTemplate(template);
+  }, [isBuiltIn, activeWorkflowId, handleCloneTemplate]);
 
   // ── Add / Delete / Update nodes ──
 
@@ -280,15 +406,43 @@ export default function WorkflowEditor() {
     [runs, activeWorkflowId]
   );
 
+  // ── Compute upstream nodes for the selected node (for expression wiring) ──
+  const upstreamNodes = useMemo(() => {
+    if (!selectedNode) return [];
+    const visited = new Set<string>();
+    const queue = [selectedNode.id];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      for (const edge of edges) {
+        if (edge.target === cur && !visited.has(edge.source)) {
+          visited.add(edge.source);
+          queue.push(edge.source);
+        }
+      }
+    }
+    return nodes
+      .filter(n => visited.has(n.id))
+      .map(n => ({ id: n.id, label: n.data.label, nodeType: n.data.nodeType }));
+  }, [selectedNode, nodes, edges]);
+
   // ── Execute current workflow ──
   const executeWorkflow = useCallback(async (triggerInput?: unknown) => {
     if (!activeWorkflowId || executing) return;
     setExecuting(true);
 
-    // Reset all node statuses
+    // Reset all node statuses and clear live output bubbles
     setNodes(prev => prev.map(n => ({
       ...n,
-      data: { ...n.data, status: 'pending' as const, itemCount: undefined, durationMs: undefined, error: undefined, output: undefined },
+      data: {
+        ...n.data,
+        status: 'pending' as const,
+        itemCount: undefined,
+        durationMs: undefined,
+        error: undefined,
+        output: undefined,
+        liveOutput: undefined,
+        outputDismissed: false,
+      },
     })));
 
     try {
@@ -300,6 +454,7 @@ export default function WorkflowEditor() {
         nodes,
         edges,
         triggerInput,
+        workspacePath: folderPath || undefined,
       });
 
       if (result.run) {
@@ -361,31 +516,120 @@ export default function WorkflowEditor() {
         bgcolor: '#fafbfc',
         backdropFilter: 'blur(8px)',
       }}>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Workflow</InputLabel>
-          <Select
-            value={activeWorkflowId || ''}
-            label="Workflow"
-            onChange={(e) => {
-              const wf = workflows.find(w => w.id === e.target.value);
-              if (wf) {
-                setActiveWorkflowId(wf.id);
-                setNodes(wf.nodes);
-                setEdges(wf.edges);
-              }
-            }}
-          >
-            {workflows.map(w => (
-              <MenuItem key={w.id} value={w.id}>{w.name}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        {/* Workflow name — show inline rename when there's an active workflow */}
+        {activeWorkflow ? (
+          <>
+            {!isBuiltIn ? (
+              renamingWorkflow ? (
+                <TextField
+                  autoFocus
+                  size="small"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onBlur={() => { renameWorkflow(renameValue); setRenamingWorkflow(false); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { renameWorkflow(renameValue); setRenamingWorkflow(false); }
+                    if (e.key === 'Escape') setRenamingWorkflow(false);
+                  }}
+                  sx={{ width: 200, '& .MuiInputBase-input': { fontSize: 14, fontWeight: 700, py: 0.5 } }}
+                />
+              ) : (
+                <Tooltip title="Click to rename">
+                  <Typography
+                    onClick={() => { setRenameValue(activeWorkflow.name); setRenamingWorkflow(true); }}
+                    sx={{
+                      fontWeight: 800, fontSize: 15, cursor: 'pointer', color: '#1a1a2e',
+                      '&:hover': { color: 'primary.main' },
+                      transition: 'color 0.15s',
+                      display: 'flex', alignItems: 'center', gap: 0.5,
+                    }}
+                  >
+                    {activeWorkflow.name}
+                    <EditIcon sx={{ fontSize: 14, opacity: 0.4 }} />
+                  </Typography>
+                </Tooltip>
+              )
+            ) : (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <LockIcon sx={{ fontSize: 16, color: '#b45309' }} />
+                <Typography sx={{ fontWeight: 800, fontSize: 15, color: '#1a1a2e' }}>
+                  {activeWorkflow.name}
+                </Typography>
+                <Chip
+                  label="Built-in"
+                  size="small"
+                  variant="outlined"
+                  color="info"
+                  sx={{ height: 20, fontSize: 10, fontWeight: 600 }}
+                />
+                <Tooltip title="Clone as editable workflow">
+                  <Button
+                    size="small"
+                    startIcon={<ContentCopyIcon />}
+                    onClick={handleCloneCurrentBuiltIn}
+                    variant="outlined"
+                    color="info"
+                    sx={{ borderRadius: 6, fontSize: 10, textTransform: 'none', height: 26 }}
+                  >
+                    Clone
+                  </Button>
+                </Tooltip>
+              </Box>
+            )}
+          </>
+        ) : (
+          <Typography sx={{ fontWeight: 700, fontSize: 14, color: '#9e9e9e' }}>
+            No workflow selected
+          </Typography>
+        )}
+
+        {/* Workflow switcher — compact dropdown only when multiple workflows exist */}
+        {workflows.length > 1 && (
+          <FormControl size="small" sx={{ minWidth: 140, ml: 1 }}>
+            <Select
+              value={activeWorkflowId || ''}
+              displayEmpty
+              onChange={(e) => {
+                const wf = workflows.find(w => w.id === e.target.value);
+                if (wf) {
+                  setActiveWorkflowId(wf.id);
+                  setNodes(wf.nodes);
+                  setEdges(wf.edges);
+                  setRenamingWorkflow(false);
+                }
+              }}
+              sx={{
+                fontSize: 11, height: 28,
+                '& .MuiSelect-select': { py: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 },
+              }}
+              renderValue={() => (
+                <Typography sx={{ fontSize: 11, color: '#78909c', fontWeight: 600 }}>
+                  Switch workflow
+                </Typography>
+              )}
+            >
+              {workflows.map(w => (
+                <MenuItem key={w.id} value={w.id} sx={{ fontSize: 12 }}>
+                  {w.id.startsWith('builtin:') && <LockIcon sx={{ fontSize: 12, mr: 0.5, opacity: 0.4 }} />}
+                  {w.name}
+                  {w.id === activeWorkflowId && (
+                    <Chip label="active" size="small" sx={{ ml: 0.5, height: 16, fontSize: 9, bgcolor: '#e3f2fd', color: '#1976d2' }} />
+                  )}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
 
         <Tooltip title="New Workflow">
           <IconButton size="small" onClick={createWorkflow}><AddIcon /></IconButton>
         </Tooltip>
 
-        {activeWorkflowId && (
+        <Tooltip title="Browse Templates">
+          <IconButton size="small" onClick={() => setTemplateBrowserOpen(true)}><DashboardIcon /></IconButton>
+        </Tooltip>
+
+        {activeWorkflowId && !isBuiltIn && (
           <Tooltip title="Delete Workflow">
             <IconButton size="small" color="error" onClick={deleteWorkflow}><DeleteIcon /></IconButton>
           </Tooltip>
@@ -411,9 +655,17 @@ export default function WorkflowEditor() {
 
         <Box sx={{ flex: 1 }} />
 
-        <Button size="small" startIcon={<SaveIcon />} onClick={saveWorkflow} variant="outlined" sx={{ borderRadius: 6 }}>
-          Save
-        </Button>
+        {isBuiltIn ? (
+          <Tooltip title="Clone this built-in to edit">
+            <Button size="small" startIcon={<ContentCopyIcon />} onClick={handleCloneCurrentBuiltIn} variant="outlined" sx={{ borderRadius: 6 }}>
+              Clone to Edit
+            </Button>
+          </Tooltip>
+        ) : (
+          <Button size="small" startIcon={<SaveIcon />} onClick={saveWorkflow} variant="outlined" sx={{ borderRadius: 6 }}>
+            Save
+          </Button>
+        )}
         <Button
           size="small"
           startIcon={executing ? <StopIcon /> : <PlayArrowIcon />}
@@ -554,6 +806,7 @@ export default function WorkflowEditor() {
             onClose={() => setDrawerOpen(false)}
             onUpdateNodeData={updateNodeData}
             onDeleteNode={deleteNode}
+            upstreamNodes={upstreamNodes}
           />
         </Box>
       ) : (
@@ -563,6 +816,99 @@ export default function WorkflowEditor() {
           onSelectRun={setActiveRunId}
         />
       )}
+
+      {/* ── Read-only banner for built-in workflows ── */}
+      {isBuiltIn && activeTab === 'editor' && (
+        <Paper
+          elevation={2}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1.5,
+            px: 2,
+            py: 0.75,
+            bgcolor: '#fffbeb',
+            borderTop: '2px solid #f59e0b',
+          }}
+        >
+          <LockIcon sx={{ fontSize: 16, color: '#b45309' }} />
+          <Typography variant="caption" sx={{ color: '#92400e', fontWeight: 600 }}>
+            This is a built-in template (read-only).
+          </Typography>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<ContentCopyIcon />}
+            onClick={handleCloneCurrentBuiltIn}
+            sx={{
+              borderRadius: 6,
+              textTransform: 'none',
+              fontSize: 11,
+              bgcolor: '#f59e0b',
+              color: '#fff',
+              '&:hover': { bgcolor: '#d97706' },
+            }}
+          >
+            Clone to customize
+          </Button>
+        </Paper>
+      )}
+
+      {/* ── Template Browser Dialog ── */}
+      <Dialog
+        open={templateBrowserOpen}
+        onClose={() => setTemplateBrowserOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DashboardIcon sx={{ color: 'primary.main' }} />
+          Workflow Templates
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Start from a built-in template. Cloned workflows are fully editable and will appear as chat modes if they contain an AI node.
+          </Typography>
+          <List disablePadding>
+            {BUILTIN_TEMPLATES.map(template => (
+              <ListItemButton
+                key={template.id}
+                onClick={() => handleCloneTemplate(template)}
+                sx={{
+                  borderRadius: 2,
+                  mb: 1,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 40, fontSize: 24 }}>
+                  {template.icon}
+                </ListItemIcon>
+                <ListItemText
+                  primary={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography fontWeight={600}>{template.name}</Typography>
+                      {template.chatMode && (
+                        <Chip
+                          label={`Chat mode: ${template.chatMode}`}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: 10 }}
+                        />
+                      )}
+                    </Box>
+                  }
+                  secondary={template.description}
+                />
+                <ContentCopyIcon sx={{ color: 'text.secondary', fontSize: 18, ml: 1 }} />
+              </ListItemButton>
+            ))}
+          </List>
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }

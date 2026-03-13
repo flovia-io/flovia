@@ -121,6 +121,30 @@ function AppLayout() {
     document.body.style.userSelect = 'none';
   }, [chatWidth]);
 
+  // Listen for "Create Workflow" onboarding from Welcome page
+  useEffect(() => {
+    const handler = async () => {
+      try {
+        // Create a session folder — title includes 'workflow' so backend creates a .flovia/workflows/ JSON
+        const result = await backend.sessionCreateFolder('workflow-project');
+        if (result.success && result.folderPath) {
+          await backend.historyOpenWorkspace(result.folderPath);
+          window.dispatchEvent(new CustomEvent('open-workspace', {
+            detail: { folderPath: result.folderPath }
+          }));
+          // Delay to let workspace load, then open the workflow editor
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('open-workflow-editor-tab', { detail: {} }));
+          }, 600);
+        }
+      } catch (err) {
+        console.error('[App] Failed to create workflow onboarding session:', err);
+      }
+    };
+    window.addEventListener('create-workflow-onboarding', handler);
+    return () => window.removeEventListener('create-workflow-onboarding', handler);
+  }, [backend]);
+
   // No folder loaded → full-screen welcome
   if (!folderPath) {
     return (

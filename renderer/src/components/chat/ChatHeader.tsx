@@ -1,4 +1,4 @@
-import { HistoryIcon, PlusIcon, SettingsIcon, CollapseIcon, ClearIcon } from '../icons';
+import { HistoryIcon, PlusIcon, CollapseIcon } from '../icons';
 
 interface ChatHeaderProps {
   historySidebarOpen: boolean;
@@ -6,9 +6,10 @@ interface ChatHeaderProps {
   onNewChat: () => void;
   onDebugOpen: () => void;
   onClearChat: () => void;
-  onOpenSettings: () => void;
   onCollapse?: () => void;
   showClear: boolean;
+  /** When false (production / no workspace), the debug button is hidden */
+  isEditing?: boolean;
 }
 
 /**
@@ -20,9 +21,9 @@ export default function ChatHeader({
   onNewChat,
   onDebugOpen,
   onClearChat,
-  onOpenSettings,
   onCollapse,
   showClear,
+  isEditing = true,
 }: ChatHeaderProps) {
   return (
     <div className="chat-hdr">
@@ -40,21 +41,20 @@ export default function ChatHeader({
         <button className="chat-hdr-btn" onClick={onNewChat} title="New Chat">
           <PlusIcon />
         </button>
-        <button
-          className="chat-hdr-btn"
-          onClick={onDebugOpen}
-          title="Session Debug — view all prompts sent to the AI"
-        >
-          🐛
-        </button>
+        {isEditing && (
+          <button
+            className="chat-hdr-btn"
+            onClick={onDebugOpen}
+            title="Session Debug — view all prompts sent to the AI"
+          >
+            🐛
+          </button>
+        )}
         {showClear && (
           <button className="chat-hdr-btn" onClick={onClearChat} title="Clear chat">
             🗑
           </button>
         )}
-        <button className="chat-hdr-btn" onClick={onOpenSettings} title="AI Settings">
-          ⚙️
-        </button>
         {onCollapse && (
           <button className="panel-collapse-btn" onClick={onCollapse} title="Collapse chat">
             <CollapseIcon />

@@ -83,6 +83,45 @@ export interface ConnectorState {
   lastConnected?: string;
 }
 
+// ─── Connector Triggers (webhook / event-based) ───
+
+export interface ConnectorTrigger {
+  /** Trigger identifier, e.g. 'check-run', 'push', 'pull-request' */
+  id: string;
+  /** Human-readable name, e.g. 'Check Run' */
+  name: string;
+  /** Short description */
+  description: string;
+  /** Available events the user can subscribe to */
+  events: ConnectorTriggerEvent[];
+  /** Fields the user must fill in to configure this trigger (e.g. owner, repo) */
+  inputFields?: ConnectorTriggerField[];
+}
+
+export interface ConnectorTriggerEvent {
+  /** Event value, e.g. 'check_run', 'push', 'pull_request' */
+  value: string;
+  /** Human-readable label */
+  label: string;
+  /** Description of when this event fires */
+  description?: string;
+}
+
+export interface ConnectorTriggerField {
+  /** Field key, e.g. 'owner', 'repository' */
+  key: string;
+  /** Human-readable label */
+  label: string;
+  /** Input type */
+  type: 'text' | 'select';
+  /** Placeholder */
+  placeholder?: string;
+  /** Whether this field is required */
+  required: boolean;
+  /** Help text */
+  helpText?: string;
+}
+
 // ─── Connector Interface ───
 
 /**
@@ -110,6 +149,12 @@ export interface Connector<TConfig = Record<string, unknown>> {
 
   /** Available actions this connector exposes */
   actions: ConnectorAction[];
+
+  /**
+   * Optional: Triggers this connector provides for workflow automation.
+   * These represent webhook / event-based entry points (e.g. GitHub push, Jira issue created).
+   */
+  triggers?: ConnectorTrigger[];
 
   /** 
    * Test whether the given configuration can connect successfully.

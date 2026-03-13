@@ -415,7 +415,7 @@ button{font-family:inherit;cursor:pointer}
 .welcome{flex:1;display:flex;flex-direction:column;align-items:center;background:#f5f5f5;padding:2rem;overflow-y:auto}
 .welcome-two-col{display:flex;gap:2rem;width:100%;max-width:1100px;align-items:flex-start}
 .welcome-left{flex:1;min-width:0;max-width:640px}
-.welcome-right{width:320px;min-width:280px;flex-shrink:0;position:sticky;top:0}
+.welcome-right{width:320px;min-width:280px;flex-shrink:0;position:sticky;top:0;max-height:calc(100vh - 6rem);overflow-y:auto}
 @media (max-width:900px){.welcome-two-col{flex-direction:column;max-width:640px}.welcome-right{width:100%;position:static}}
 .welcome-container{display:flex;flex-direction:column;gap:2rem;width:100%;padding-bottom:3rem}
 .welcome-chat-section{width:100%}
@@ -424,14 +424,14 @@ button{font-family:inherit;cursor:pointer}
 .welcome-history-section h3{font-size:.75rem;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.75rem}
 
 /* ── Welcome Tabs (Projects / All Chats) ─── */
-.welcome-tabs-section{background:#fff;border:1px solid #e0e0e0;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.04);overflow:hidden}
+.welcome-tabs-section{background:#fff;border:1px solid #e0e0e0;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.04);overflow:hidden;display:flex;flex-direction:column;max-height:400px}
 .welcome-tabs{display:flex;border-bottom:1px solid #eee;background:#fafafa}
 .welcome-tab{flex:1;display:flex;align-items:center;justify-content:center;gap:.4rem;padding:.65rem 1rem;background:none;border:none;border-bottom:2px solid transparent;font-size:.8rem;font-weight:500;color:#888;cursor:pointer;transition:all .15s;font-family:inherit}
 .welcome-tab:hover{color:#555;background:rgba(0,0,0,.02)}
 .welcome-tab.active{color:#333;font-weight:600;border-bottom-color:#333;background:#fff}
 .welcome-tab-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;background:#eee;border-radius:9px;font-size:.65rem;font-weight:600;color:#888}
 .welcome-tab.active .welcome-tab-count{background:#333;color:#fff}
-.welcome-tab-content{padding:1rem 1.5rem}
+.welcome-tab-content{padding:1rem 1.5rem;overflow-y:auto;flex:1}
 
 /* ── All Chats list ─── */
 .welcome-chats-empty{text-align:center;padding:1.5rem;color:#aaa;font-size:.82rem}
@@ -442,7 +442,7 @@ button{font-family:inherit;cursor:pointer}
 .welcome-chat-item-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .welcome-chat-item-title{font-size:.84rem;font-weight:600;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .welcome-chat-item-meta{display:flex;align-items:center;gap:4px;font-size:.68rem;color:#aaa;flex-wrap:wrap}
-.welcome-chat-item-workspace{color:#0369a1;font-weight:500}
+.welcome-chat-item-workspace{color:#555;font-weight:500}
 .welcome-chat-item-sep{color:#ddd}
 .btn-import{display:inline-flex;align-items:center;gap:.6rem;padding:.85rem 2.2rem;background:#333;color:#fff;border:none;border-radius:10px;font-size:1.05rem;font-weight:600;transition:transform .15s,box-shadow .15s;width:100%;justify-content:center}
 .btn-import:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.12)}
@@ -450,6 +450,15 @@ button{font-family:inherit;cursor:pointer}
 .btn-primary{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.5rem;background:#333;color:#fff;border:none;border-radius:8px;font-size:.9rem;font-weight:600;transition:transform .15s,box-shadow .15s}
 .btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.12)}
 .btn-primary:active{transform:translateY(0)}
+
+/* ── Unified Welcome Action Buttons ─── */
+.welcome-action-btn{max-width:320px;width:100%;display:flex;align-items:center;justify-content:center;gap:.5rem;padding:.7rem 1.4rem;border-radius:10px;font-size:.88rem;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit}
+.welcome-action-btn.primary{background:#333;color:#fff;border:none;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.welcome-action-btn.primary:hover{background:#222;transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.15)}
+.welcome-action-btn.primary:active{transform:translateY(0);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.welcome-action-btn.secondary{background:#fff;color:#444;border:1px solid #ddd}
+.welcome-action-btn.secondary:hover{background:#fafafa;border-color:#bbb;color:#222;transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.welcome-action-btn.secondary:active{transform:translateY(0);box-shadow:none}
 
 /* ── Recent Workspaces ─── */
 .recent-workspaces-list{display:flex;flex-direction:column;gap:4px}
@@ -1383,10 +1392,10 @@ button{font-family:inherit;cursor:pointer}
 .start-page-chat-settings-btn:hover{background:rgba(0,0,0,.05)}
 
 /* Workspace info badge */
-.start-page-chat-workspace-badge{display:flex;align-items:center;gap:6px;padding:4px 1rem;background:#f0f9ff;border-bottom:1px solid #e0f2fe;font-size:.72rem;color:#0369a1}
+.start-page-chat-workspace-badge{display:flex;align-items:center;gap:6px;padding:4px 1rem;background:#f5f5f5;border-bottom:1px solid #e8e8e8;font-size:.72rem;color:#555}
 .workspace-badge-icon{font-size:.75rem}
 .workspace-badge-path{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;font-family:'SF Mono','Fira Code',monospace;font-size:.7rem}
-.workspace-badge-label{margin-left:auto;background:#e0f2fe;padding:1px 6px;border-radius:4px;font-size:.65rem;font-weight:500;color:#0369a1}
+.workspace-badge-label{margin-left:auto;background:#eee;padding:1px 6px;border-radius:4px;font-size:.65rem;font-weight:500;color:#666}
 .start-page-chat-close{background:none;border:none;color:#999;font-size:1.4rem;cursor:pointer;padding:0 4px;line-height:1}
 .start-page-chat-close:hover{color:#c0392b}
 
@@ -1396,9 +1405,8 @@ button{font-family:inherit;cursor:pointer}
 .start-page-chat-hint{font-size:.78rem;color:#aaa}
 .start-page-chat-hint .agent-disabled{background:#f0f0f0;padding:2px 6px;border-radius:4px;color:#999;font-weight:500}
 
-.start-page-chat-welcome-actions{display:flex;flex-direction:column;gap:.75rem;align-items:center;padding:0 1rem}
-.start-page-chat-welcome-actions .btn-import{max-width:320px}
-.start-page-chat-welcome-actions .github-clone-btn{max-width:320px}
+.start-page-chat-welcome-actions{display:flex;flex-direction:column;gap:.6rem;align-items:center;padding:0 1rem}
+.start-page-chat-welcome-actions .welcome-action-btn{max-width:320px}
 .start-page-chat-divider{display:flex;align-items:center;gap:.75rem;margin:1rem 0 .5rem;color:#bbb;font-size:.76rem}
 .start-page-chat-divider::before,.start-page-chat-divider::after{content:'';flex:1;height:1px;background:#e8e8e8}
 .start-page-chat-configure-link{background:none;border:none;color:#555;font-size:.78rem;font-weight:600;cursor:pointer;padding:0;text-decoration:underline}
@@ -1421,10 +1429,10 @@ button{font-family:inherit;cursor:pointer}
 .start-page-chat-message .message-content.loading .dot:nth-child(2){animation-delay:.2s}
 .start-page-chat-message .message-content.loading .dot:nth-child(3){animation-delay:.4s}
 
-.start-page-chat-session-bar{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;background:#f0f9ff;border-top:1px solid #e0f2fe;font-size:.78rem;color:#0369a1;transition:all .2s}
-.start-page-chat-session-bar.streaming{background:linear-gradient(90deg,#f0f9ff,#e0f2fe,#f0f9ff);background-size:200% 100%;animation:session-bar-shimmer 2s ease-in-out infinite}
-.start-page-chat-session-bar button{background:#0369a1;color:#fff;border:none;padding:.35rem .8rem;border-radius:5px;font-size:.75rem;cursor:pointer;transition:background .15s}
-.start-page-chat-session-bar button:hover{background:#075985}
+.start-page-chat-session-bar{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;background:#f5f5f5;border-top:1px solid #e8e8e8;font-size:.78rem;color:#555;transition:all .2s}
+.start-page-chat-session-bar.streaming{background:linear-gradient(90deg,#f5f5f5,#eee,#f5f5f5);background-size:200% 100%;animation:session-bar-shimmer 2s ease-in-out infinite}
+.start-page-chat-session-bar button{background:#333;color:#fff;border:none;padding:.35rem .8rem;border-radius:5px;font-size:.75rem;cursor:pointer;transition:background .15s}
+.start-page-chat-session-bar button:hover{background:#222}
 @keyframes session-bar-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
 .start-page-chat-composer{display:flex;align-items:flex-end;gap:.5rem;padding:.75rem 1rem;border-top:1px solid #eee}
@@ -1479,14 +1487,14 @@ button{font-family:inherit;cursor:pointer}
 .html-preview-toggle.active{background:#333;color:#fff}
 
 /* ── Welcome Connections Panel ─── */
-.welcome-connections{background:#fff;border:1px solid #e0e0e0;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.04);padding:1.25rem;overflow:hidden}
+.welcome-connections{background:#fff;border:1px solid #e0e0e0;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.04);padding:1.25rem;overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 6rem)}
 .welcome-connections-header{display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem}
 .welcome-connections-icon{font-size:1.1rem}
 .welcome-connections-title{font-size:.9rem;font-weight:700;color:#333}
 .welcome-connections-count{margin-left:auto;font-size:.65rem;font-weight:600;background:#eee;color:#888;padding:1px 7px;border-radius:9px}
 .welcome-connections-subtitle{font-size:.72rem;color:#999;margin:0 0 1rem 0;line-height:1.4}
 .welcome-connections-loading,.welcome-connections-empty{text-align:center;padding:2rem 1rem;color:#aaa;font-size:.8rem}
-.welcome-connections-list{display:flex;flex-direction:column;gap:.75rem}
+.welcome-connections-list{display:flex;flex-direction:column;gap:.75rem;overflow-y:auto;flex:1}
 
 /* Connector Card */
 .welcome-connector-card{border:1px solid #e8e8e8;border-radius:10px;padding:.875rem;transition:all .15s}
@@ -1510,8 +1518,8 @@ button{font-family:inherit;cursor:pointer}
 /* Actions row */
 .welcome-connector-actions{display:flex;align-items:center;justify-content:space-between;margin-top:.6rem;gap:.5rem}
 .welcome-connector-connected-label{font-size:.7rem;font-weight:600;color:#16a34a}
-.welcome-connector-btn-connect{display:inline-flex;align-items:center;gap:.3rem;padding:.35rem .75rem;border:1px dashed #bbb;border-radius:7px;background:none;font-size:.72rem;font-weight:500;color:#666;cursor:pointer;transition:all .12s;font-family:inherit}
-.welcome-connector-btn-connect:hover{border-color:#888;color:#333;background:rgba(0,0,0,.02)}
+.welcome-connector-btn-connect{display:inline-flex;align-items:center;gap:.3rem;padding:.35rem .75rem;border:1px solid #ccc;border-radius:7px;background:none;font-size:.72rem;font-weight:500;color:#555;cursor:pointer;transition:all .12s;font-family:inherit}
+.welcome-connector-btn-connect:hover{border-color:#333;color:#333;background:rgba(0,0,0,.03)}
 .welcome-connector-btn-disconnect{padding:.3rem .6rem;border:1px solid #e0e0e0;border-radius:6px;background:none;font-size:.68rem;font-weight:500;color:#999;cursor:pointer;transition:all .12s;font-family:inherit}
 .welcome-connector-btn-disconnect:hover{border-color:#ef4444;color:#ef4444}
 .welcome-connector-actions-count{font-size:.65rem;color:#aaa;margin-top:.4rem}
@@ -1530,5 +1538,5 @@ button{font-family:inherit;cursor:pointer}
 .welcome-connector-btn-cancel{padding:.35rem .7rem;border:1px solid #ddd;border-radius:6px;background:none;font-size:.72rem;font-weight:500;color:#888;cursor:pointer;font-family:inherit;transition:all .12s}
 .welcome-connector-btn-cancel:hover{border-color:#999;color:#555}
 .welcome-connector-btn-save{padding:.35rem .75rem;border:none;border-radius:6px;background:#333;color:#fff;font-size:.72rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .12s}
-.welcome-connector-btn-save:hover{background:#111}
+.welcome-connector-btn-save:hover{background:#222}
 .welcome-connector-btn-save:disabled,.welcome-connector-btn-cancel:disabled{opacity:.5;cursor:not-allowed}

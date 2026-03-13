@@ -34,9 +34,10 @@ import {
   KeyboardIcon,
   FolderIcon,
 } from './icons';
-import { isCliMode, getCliProviderId, type ChatMode } from '../types/ui.types';
+import { isCliMode, getCliProviderId, isWorkflowMode, getWorkflowId, type ChatMode } from '../types/ui.types';
 import { useAgentExecution } from '../context/AgentExecutionContext';
 import { useStreamingBridge } from '../context/StreamingBridgeContext';
+import { workflowHasAINode, type EditorWorkflow } from './workflow';
 
 interface ChatPanelProps {
   onCollapse?: () => void;
@@ -69,6 +70,9 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
   const [cliProviders, setCliProviders] = useState<CliProviderStatus[]>([]);
   const [cliModel, setCliModel] = useState<Record<CliProviderId, string>>({} as any);
   const [cliDetecting, setCliDetecting] = useState(false);
+
+  // ── Custom workflow modes (workflows with AI nodes) ──
+  const [workflowModes, setWorkflowModes] = useState<EditorWorkflow[]>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputBoxRef = useRef<HTMLDivElement>(null);
@@ -125,6 +129,25 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
     }).finally(() => {
       if (!cancelled) setCliDetecting(false);
     });
+    return () => { cancelled = true; };
+  }, [backend]);
+
+  // ── Load custom workflow modes (workflows with AI/LLM nodes) ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const allWfs = await backend.orchestratorListEditorWorkflows(folderPath || undefined) as EditorWorkflow[];
+        if (cancelled) return;
+        // Only include non-built-in workflows that have AI nodes
+        const aiWorkflows = allWfs.filter(wf =>
+          !wf.id.startsWith('builtin:') && workflowHasAINode(wf)
+        );
+        setWorkflowModes(aiWorkflows);
+      } catch {
+        if (!cancelled) setWorkflowModes([]);
+      }
+    })();
     return () => { cancelled = true; };
   }, [backend]);
 
@@ -300,6 +323,122 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
       return;
     }
 
+    // ── Workflow mode — execute the selected workflow via the orchestrator ──
+    if (isWorkflowMode(mode)) {
+      const workflowId = getWorkflowId(mode)!;
+
+      await ensureConversation();
+      setMessages(prev => [...prev, { text, sender: 'user' }]);
+      setInput('');
+      clearFiles();
+      scrollToBottom();
+      setLoading(true);
+
+      // Placeholder bot message that gets updated with live step progress
+      setMessages(prev => [...prev, { text: '⚡ Starting workflow…', sender: 'bot', isAgentProgress: true }]);
+
+      // Track step labels for live progress display
+      const stepLog: string[] = [];
+
+      const unsub = backend.onOrchestratorEvent((event: any) => {
+        if (event.category !== 'step') return;
+        const { stepId, status } = event.data || {};
+        if (!stepId) return;
+
+        if (event.action === 'started' && status === 'running') {
+          // Find node label from the workflow list (best-effort)
+          stepLog.push(`⏳ Running step…`);
+        } else if (event.action === 'completed') {
+          if (stepLog.length > 0) stepLog[stepLog.length - 1] = `✓ ${stepLog[stepLog.length - 1].replace(/^⏳\s*/, '')}`;
+        } else if (event.type === 'chunk') {
+          // Live LLM/agent output — show the latest chunk
+          const { accumulated } = event.data || {};
+          if (accumulated) {
+            setMessages(prev => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                text: accumulated,
+                sender: 'bot',
+                isAgentProgress: true,
+              };
+              return updated;
+            });
+            scrollToBottom();
+            return;
+          }
+        }
+
+        const progressText = stepLog.join('\n') || '⚡ Running workflow…';
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { text: progressText, sender: 'bot', isAgentProgress: true };
+          return updated;
+        });
+        scrollToBottom();
+      });
+
+      try {
+        const allWfs = await backend.orchestratorListEditorWorkflows(folderPath || undefined) as EditorWorkflow[];
+        const wf = allWfs.find(w => w.id === workflowId);
+        if (!wf) throw new Error(`Workflow "${workflowId}" not found`);
+
+        const result = await backend.orchestratorExecuteWorkflow({
+          id: wf.id,
+          name: wf.name,
+          nodes: wf.nodes as unknown[],
+          edges: wf.edges as unknown[],
+          triggerInput: { message: text, timestamp: new Date().toISOString() },
+          workspacePath: folderPath || undefined,
+        });
+
+        unsub();
+
+        // Extract the most meaningful output from the completed run
+        const run = result.run as any;
+        const steps: any[] = run?.steps || [];
+        let replyText = '';
+
+        // Walk steps in reverse to find the last meaningful text output
+        for (let i = steps.length - 1; i >= 0; i--) {
+          const out = steps[i]?.output;
+          if (!out) continue;
+          if (typeof out === 'string') { replyText = out; break; }
+          if (out.text) { replyText = out.text; break; }
+          if (out.reply) { replyText = out.reply; break; }
+          if (out.data && typeof out.data === 'string') { replyText = out.data; break; }
+        }
+        if (!replyText) {
+          replyText = result.success ? '✓ Workflow completed.' : '⚠️ Workflow finished with errors.';
+        }
+
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { text: replyText, sender: 'bot' };
+          return updated;
+        });
+
+        setHistory(prev => [
+          ...prev,
+          { role: 'user', content: text },
+          { role: 'assistant', content: replyText },
+        ]);
+      } catch (err: any) {
+        unsub();
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            text: `⚠️ Workflow error: ${err.message || 'Unknown error'}`,
+            sender: 'bot',
+          };
+          return updated;
+        });
+      } finally {
+        setLoading(false);
+        scrollToBottom();
+      }
+      return;
+    }
+
     // ── Local AI modes (Agent / Chat / Edit) ──
     if (!settings) return;
     const model = selectedModel || settings.selectedModel;
@@ -329,6 +468,7 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
       agentExec.completeStep(inputStepId, { text });
     }
 
+    try {
     const ai = { baseUrl: settings.baseUrl, apiKey: settings.apiKey, model };
     let researchedFiles: Array<{ name: string; path: string; content?: string; searchContext?: string }> = [];
 
@@ -389,10 +529,29 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
 
     await streamResponse(settings.baseUrl, settings.apiKey, model, newHistory);
 
-    // Finish trace
+    // Finish trace — agent is done
     if (isAgentMode) {
       if (streamStepId) agentExec.completeStep(streamStepId, { status: 'streamed' }, { stopReason: 'end_turn' });
       agentExec.finishTrace('success');
+    }
+    } catch (pipelineErr: any) {
+      // Ensure the trace is properly finished even on error so it doesn't keep "running"
+      if (isAgentMode) {
+        agentExec.finishTrace('error');
+      }
+      setMessages(prev => {
+        const updated = [...prev];
+        if (updated.length > 0 && updated[updated.length - 1].sender === 'bot') {
+          updated[updated.length - 1] = {
+            text: `⚠️ Agent error: ${pipelineErr.message || 'Unknown error'}`,
+            sender: 'bot',
+          };
+        } else {
+          updated.push({ text: `⚠️ Agent error: ${pipelineErr.message || 'Unknown error'}`, sender: 'bot' });
+        }
+        return updated;
+      });
+      setLoading(false);
     }
   }, [
     input, loading, settings, selectedModel, history, attachedFiles, scrollToBottom,
@@ -462,9 +621,9 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
           onNewChat={handleNewChat}
           onDebugOpen={() => openDebugTraceTab()}
           onClearChat={clearChat}
-          onOpenSettings={() => setSettingsOpen(true)}
           onCollapse={onCollapse}
           showClear={messages.length > 0}
+          isEditing={!!folderPath}
         />
 
         {/* Messages */}
@@ -569,7 +728,8 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
               <div className="composer-dropdown-wrap">
                 <button className="composer-dropdown-btn" onClick={() => setModeMenuOpen(p => !p)}>
                   {isCliMode(mode) && <span className="mode-copilot-dot" />}
-                  {isCliMode(mode) ? (activeProviderMeta?.shortName ?? mode) : mode} <span className="caret">▾</span>
+                  {isWorkflowMode(mode) && <span className="mode-copilot-dot" style={{ background: '#6366f1' }} />}
+                  {isCliMode(mode) ? (activeProviderMeta?.shortName ?? mode) : isWorkflowMode(mode) ? (workflowModes.find(w => `wf:${w.id}` === mode)?.name ?? 'Workflow') : mode} <span className="caret">▾</span>
                 </button>
                 {modeMenuOpen && (
                   <div className="composer-dropdown-menu grouped-mode-menu">
@@ -615,18 +775,38 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
                     })}
                     {/* ── Local models section ── */}
                     <div className="mode-group-label">Local AI</div>
-                    {(['Agent', 'Chat', 'Edit'] as ChatMode[]).map(m => (
+                    {(['Agent', 'Chat'] as ChatMode[]).map(m => (
                       <button 
                         key={m} 
                         className={`composer-dropdown-item ${m === mode ? 'active' : ''}`} 
                         onClick={() => { setMode(m); setModeMenuOpen(false); }}
                       >
                         <span className="mode-item-icon">
-                          {m === 'Agent' ? '🤖' : m === 'Chat' ? '💬' : '✏️'}
+                          {m === 'Agent' ? '🤖' : '💬'}
                         </span>
                         {m}
                       </button>
                     ))}
+                    {/* ── Custom Workflow modes ── */}
+                    {workflowModes.length > 0 && (
+                      <>
+                        <div className="mode-group-divider" />
+                        <div className="mode-group-label">⚡ Workflows</div>
+                        {workflowModes.map(wf => {
+                          const wfMode = `wf:${wf.id}` as ChatMode;
+                          return (
+                            <button
+                              key={wf.id}
+                              className={`composer-dropdown-item ${wfMode === mode ? 'active' : ''}`}
+                              onClick={() => { setMode(wfMode); setModeMenuOpen(false); }}
+                            >
+                              <span className="mode-item-icon">⚡</span>
+                              {wf.name}
+                            </button>
+                          );
+                        })}
+                      </>
+                    )}
                   </div>
                 )}
               </div>

@@ -241,6 +241,13 @@ export interface BackendAPI {
     metadata: { id: string; name: string; description: string; icon: string; category: string; version: string };
     configFields: Array<{ key: string; label: string; type: string; placeholder?: string; required: boolean; helpText?: string }>;
     actions: Array<{ id: string; name: string; description: string; inputSchema?: Record<string, unknown> }>;
+    triggers?: Array<{
+      id: string;
+      name: string;
+      description: string;
+      events: Array<{ value: string; label: string; description?: string }>;
+      inputFields?: Array<{ key: string; label: string; type: string; placeholder?: string; required: boolean; helpText?: string }>;
+    }>;
     state: { status: string; error?: string; lastConnected?: string };
   } | null>;
   connectorGetState(connectorId: string): Promise<{ status: string; error?: string; lastConnected?: string }>;
@@ -266,11 +273,11 @@ export interface BackendAPI {
   onOrchestratorEvent(cb: (event: unknown) => void): Unsubscribe;
 
   // ── Visual Workflow Editor ──
-  orchestratorSaveEditorWorkflow(data: unknown): Promise<{ success: boolean }>;
-  orchestratorListEditorWorkflows(): Promise<unknown[]>;
+  orchestratorSaveEditorWorkflow(data: unknown, workspacePath?: string): Promise<{ success: boolean }>;
+  orchestratorListEditorWorkflows(workspacePath?: string): Promise<unknown[]>;
   orchestratorDeleteEditorWorkflow(workflowId: string): Promise<{ success: boolean }>;
 
   // ── Workflow Execution ──
-  orchestratorExecuteWorkflow(workflowData: { id: string; name: string; nodes: unknown[]; edges: unknown[]; triggerInput?: unknown }): Promise<{ success: boolean; run?: unknown }>;
+  orchestratorExecuteWorkflow(workflowData: { id: string; name: string; nodes: unknown[]; edges: unknown[]; triggerInput?: unknown; workspacePath?: string }): Promise<{ success: boolean; run?: unknown }>;
   orchestratorSaveRun(run: unknown): Promise<{ success: boolean }>;
 }

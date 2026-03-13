@@ -11,7 +11,7 @@ import {
   StopIcon,
 } from '../icons';
 
-type ChatMode = 'Agent' | 'Chat' | 'Edit' | 'Copilot';
+type ChatMode = 'Agent' | 'Chat' | 'Copilot';
 
 interface AttachedFile {
   name: string;
@@ -52,7 +52,7 @@ interface ChatComposerProps {
   onFilePick: (e: ChangeEvent<HTMLInputElement>) => void;
 }
 
-const chatModes: ChatMode[] = ['Agent', 'Chat', 'Edit', 'Copilot'];
+const chatModes: ChatMode[] = ['Agent', 'Chat', 'Copilot'];
 
 /**
  * Chat composer component with input, file attachments, and controls
@@ -187,7 +187,7 @@ export default function ChatComposer({
                 <div className="mode-group-divider" />
                 {/* Local modes section */}
                 <div className="mode-group-label">Local</div>
-                {(['Agent', 'Chat', 'Edit'] as ChatMode[]).map((m) => (
+                {(['Agent', 'Chat'] as ChatMode[]).map((m) => (
                   <button
                     key={m}
                     className={`composer-dropdown-item ${m === mode ? 'active' : ''}`}

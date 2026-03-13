@@ -335,8 +335,8 @@ export function createHttpAdapter(): BackendAPI {
     },
 
     // ── Visual Workflow Editor ──
-    orchestratorSaveEditorWorkflow: (d) => post('/api/orchestrator/editor-workflows', d),
-    orchestratorListEditorWorkflows: () => get('/api/orchestrator/editor-workflows'),
+    orchestratorSaveEditorWorkflow: (d: unknown, workspacePath?: string) => post('/api/orchestrator/editor-workflows', { data: d, workspacePath }),
+    orchestratorListEditorWorkflows: (workspacePath?: string) => get(`/api/orchestrator/editor-workflows${workspacePath ? `?workspacePath=${encodeURIComponent(workspacePath)}` : ''}`),
     orchestratorDeleteEditorWorkflow: async (id) => {
       const res = await fetch(`${baseUrl()}/api/orchestrator/editor-workflows/${id}`, { method: 'DELETE' });
       return res.json();

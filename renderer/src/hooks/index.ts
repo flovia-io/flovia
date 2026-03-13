@@ -12,3 +12,4 @@ export { useAgentPipeline } from './useAgentPipeline';
 export { useMessageStream } from './useMessageStream';
 export { useAgentConfigs } from './useAgentConfigs';
 export { useAgentTrace } from './useAgentTrace';
+export { useBusyState } from './useBusyState';

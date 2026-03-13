@@ -42,3 +42,8 @@ export {
   sortBy,
   chunk,
 } from './arrayUtils';
+export {
+  formatRelativeDate,
+  formatDurationMs,
+  extractEmailName,
+} from './formatters';

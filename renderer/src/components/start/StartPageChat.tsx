@@ -12,7 +12,6 @@ import { useStreamingBridge } from '../../context/StreamingBridgeContext';
 import { useAISettings } from '../../hooks';
 import HtmlPreview, { isFullHtmlDocument, extractHtmlFromMarkdown, extractPreviewName } from '../HtmlPreview';
 import { SendIcon, StopIcon, MessageCircleIcon } from '../icons';
-import { GitHubClone } from '.';
 import SettingsModal from '../SettingsModal';
 import Markdown from '../Markdown';
 import type { ChatMessage, DisplayMessage } from '../../types';
@@ -565,7 +564,7 @@ export default function StartPageChat({ importFolder, onWorkspaceCreated }: Star
       <div className="start-page-chat-header">
         <div className="start-page-chat-title">
           <MessageCircleIcon />
-          <span>mydev.flovia.io</span>
+          <span>flovia</span>
         </div>
         <div className="start-page-chat-header-actions">
           {messages.length > 0 && (
@@ -603,8 +602,34 @@ export default function StartPageChat({ importFolder, onWorkspaceCreated }: Star
         {messages.length === 0 && (
           <div className="start-page-chat-empty">
             <div className="start-page-chat-welcome-actions">
-              <button className="btn-import" onClick={importFolder}>📂 Import a Project</button>
-              <GitHubClone />
+              <button className="welcome-action-btn primary" onClick={importFolder}>📂 Open Local Folder</button>
+              <button className="welcome-action-btn secondary" onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.multiple = true;
+                input.onchange = async () => {
+                  if (!input.files || input.files.length === 0) return;
+                  try {
+                    // Create a new session folder for the uploaded files
+                    const result = await backend.sessionCreateFolder('uploaded-files');
+                    if (!result.success || !result.folderPath) return;
+                    const folderPath = result.folderPath;
+                    // Write each file into the session folder
+                    for (const file of Array.from(input.files)) {
+                      const content = await file.text();
+                      await backend.createFile(`${folderPath}/${file.name}`, content);
+                    }
+                    // Open workspace
+                    window.dispatchEvent(new CustomEvent('open-workspace', { detail: { folderPath } }));
+                  } catch (err) {
+                    console.error('[StartPageChat] File upload failed:', err);
+                  }
+                };
+                input.click();
+              }}>📎 Upload Files</button>
+              <button className="welcome-action-btn secondary" onClick={() => {
+                window.dispatchEvent(new CustomEvent('create-workflow-onboarding'));
+              }}>⚡ Create a Workflow</button>
             </div>
             <div className="start-page-chat-divider">
               <span>or start a conversation</span>

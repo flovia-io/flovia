@@ -68,6 +68,7 @@ interface PanelConfig {
 
 const panels: PanelConfig[] = [
   { id: 'explorer', label: 'Explorer', icon: <FolderIcon fontSize="small" /> },
+  { id: 'workflows', label: 'Workflows', icon: <AccountTreeIcon fontSize="small" /> },
   { id: 'search', label: 'Search', icon: <SearchIcon fontSize="small" /> },
   { id: 'source-control', label: 'Source Control', icon: <GitIcon size={18} />, gitOnly: true },
   { id: 'npm', label: 'NPM Scripts', icon: <NpmIcon size={18} />, npmOnly: true },
@@ -87,9 +88,10 @@ interface ActivityBarProps {
 }
 
 export default function ActivityBar({ onToggleTerminal, terminalVisible }: ActivityBarProps) {
-  const { activePanel, setActivePanel, hasGit, npmProjects, gitSplitChanges, openAgentsTab, openWorkflowEditor, openDebugTraceTab } = useWorkspace();
+  const { activePanel, setActivePanel, hasGit, npmProjects, gitSplitChanges, openAgentsTab, openWorkflowEditor, openDebugTraceTab, folderPath } = useWorkspace();
   const backend = useBackend();
   const [promptSettingsOpen, setPromptSettingsOpen] = useState(false);
+  const isEditing = !!folderPath;
 
   // Listen for menu-triggered open prompts
   useEffect(() => {
@@ -249,43 +251,26 @@ export default function ActivityBar({ onToggleTerminal, terminalVisible }: Activ
           </IconButton>
         </Tooltip>
 
-        {/* Workflow Editor */}
-        <Tooltip title="Workflow Editor" placement="right">
-          <IconButton
-            onClick={() => openWorkflowEditor()}
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 1.5,
-              color: 'text.secondary',
-              '&:hover': {
-                bgcolor: 'rgba(0,0,0,0.05)',
-                color: 'text.primary',
-              },
-            }}
-          >
-            <AccountTreeIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        {/* AI Debug Trace */}
-        <Tooltip title="AI Debug — view all agent calls" placement="right">
-          <IconButton
-            onClick={() => openDebugTraceTab()}
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 1.5,
-              color: 'text.secondary',
-              '&:hover': {
-                bgcolor: 'rgba(0,0,0,0.05)',
-                color: 'text.primary',
-              },
-            }}
-          >
-            <span style={{ fontSize: 18 }}>🐛</span>
-          </IconButton>
-        </Tooltip>
+        {/* AI Debug Trace — only visible when editing (workspace open) */}
+        {isEditing && (
+          <Tooltip title="AI Debug — view all agent calls" placement="right">
+            <IconButton
+              onClick={() => openDebugTraceTab()}
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 1.5,
+                color: 'text.secondary',
+                '&:hover': {
+                  bgcolor: 'rgba(0,0,0,0.05)',
+                  color: 'text.primary',
+                },
+              }}
+            >
+              <span style={{ fontSize: 18 }}>🐛</span>
+            </IconButton>
+          </Tooltip>
+        )}
 
         {/* New Window */}
         <Tooltip title="New Window" placement="right">

@@ -3,7 +3,7 @@
  * 
  * Refactored to use Material UI components.
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -17,13 +17,11 @@ import {
   CircularProgress,
   Fade,
 } from '@mui/material';
-import SettingsIcon from '@mui/icons-material/Settings';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import CheckIcon from '@mui/icons-material/Check';
 import { useWorkspace } from '../context/WorkspaceContext';
-import SettingsModal from './SettingsModal';
 import { GitIcon, NpmIcon } from './icons';
 
 // Window control padding for macOS
@@ -34,7 +32,6 @@ export default function StatusBar() {
     hasGit, hasPackageJson, packageName, folderPath, folderName,
     gitBranchInfo, gitPush, gitPull, gitCheckout, closeWorkspace,
   } = useWorkspace();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [branchAnchor, setBranchAnchor] = useState<HTMLElement | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pulling, setPulling] = useState(false);
@@ -104,7 +101,7 @@ export default function StatusBar() {
           </>
         ) : (
           <Typography variant="body2" fontWeight={700} sx={{ color: 'text.primary' }}>
-            mydev.flovia.io
+            flovia
           </Typography>
         )}
         {hasGit && (
@@ -253,20 +250,8 @@ export default function StatusBar() {
             {folderPath}
           </Typography>
         )}
-
-        {/* Settings */}
-        <Tooltip title="AI Settings">
-          <IconButton
-            size="small"
-            onClick={() => setSettingsOpen(true)}
-            sx={{ width: 22, height: 22, color: 'text.secondary' }}
-          >
-            <SettingsIcon sx={{ fontSize: 14 }} />
-          </IconButton>
-        </Tooltip>
       </Box>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} onSaved={() => setSettingsOpen(false)} />
-    </Box>
+      </Box>
   );
 }

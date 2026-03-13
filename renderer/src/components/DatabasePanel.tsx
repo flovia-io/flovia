@@ -1,27 +1,50 @@
 /**
- * DatabasePanel - Database explorer with support for multiple database types
- * Auto-detects Supabase projects and uses them as PostgreSQL connections
- * Features:
- * - Database type selection
- * - Auto-detection of Supabase projects
- * - Tables listing (when connected)
- * - Operations (list tables, execute query)
- * - SQL files found in workspace
+ * DatabasePanel — Database explorer with support for multiple database types.
+ * Auto-detects Supabase projects and uses them as PostgreSQL connections.
+ *
+ * Refactored to use MUI components and shared abstractions instead of raw HTML+CSS.
  */
 import { useState, useEffect, useMemo } from 'react';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import TextField from '@mui/material/TextField';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
+import Alert from '@mui/material/Alert';
+import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
+import CircularProgress from '@mui/material/CircularProgress';
+import Divider from '@mui/material/Divider';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import StorageIcon from '@mui/icons-material/Storage';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import TableChartIcon from '@mui/icons-material/TableChart';
+import DescriptionIcon from '@mui/icons-material/Description';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import LinkIcon from '@mui/icons-material/Link';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
+
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useBackend } from '../context/BackendContext';
-import { 
-  DatabaseIcon, 
-  ChevronDownIcon, 
-  ChevronRightIcon, 
-  PlayIcon, 
-  TableIcon,
-  SqlFileIcon,
-  RefreshIcon,
-  SupabaseIcon
-} from './icons';
+import { SupabaseIcon } from './icons';
 
+/* ─── Types ─── */
 type DatabaseType = 'postgresql' | 'mysql' | 'sqlite' | 'mongodb' | 'none';
 
 interface SqlFile {
@@ -35,58 +58,86 @@ interface TableInfo {
   rowCount?: number;
 }
 
+/* ─── Database type options ─── */
+const DATABASE_TYPES: { id: DatabaseType; name: string; icon: string }[] = [
+  { id: 'postgresql', name: 'PostgreSQL', icon: '🐘' },
+  { id: 'mysql', name: 'MySQL', icon: '🐬' },
+  { id: 'sqlite', name: 'SQLite', icon: '📁' },
+  { id: 'mongodb', name: 'MongoDB', icon: '🍃' },
+];
+
+/* ─── Helpers ─── */
+
+/** Recursively find .sql files in the workspace tree */
+function findSqlFiles(
+  tree: Array<{ name: string; path: string; type: string; children?: Array<unknown> }>,
+  basePath = '',
+): SqlFile[] {
+  const result: SqlFile[] = [];
+  for (const entry of tree) {
+    const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+    if (entry.type === 'file' && entry.name.endsWith('.sql')) {
+      result.push({ name: entry.name, path: entry.path });
+    }
+    if (entry.children && Array.isArray(entry.children)) {
+      result.push(
+        ...findSqlFiles(
+          entry.children as Array<{ name: string; path: string; type: string; children?: Array<unknown> }>,
+          fullPath,
+        ),
+      );
+    }
+  }
+  return result;
+}
+
+/* ─── Collapsible section ─── */
 interface AccordionSectionProps {
   title: string;
   icon: React.ReactNode;
-  isOpen: boolean;
+  open: boolean;
   onToggle: () => void;
   disabled?: boolean;
   badge?: number;
   children: React.ReactNode;
 }
 
-function AccordionSection({ title, icon, isOpen, onToggle, disabled, badge, children }: AccordionSectionProps) {
+function AccordionSection({ title, icon, open, onToggle, disabled, badge, children }: AccordionSectionProps) {
   return (
-    <div className={`db-accordion ${disabled ? 'db-accordion-disabled' : ''}`}>
-      <button 
-        className="db-accordion-header" 
-        onClick={onToggle}
-        disabled={disabled}
+    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden', opacity: disabled ? 0.5 : 1 }}>
+      <Box
+        onClick={disabled ? undefined : onToggle}
+        sx={{
+          display: 'flex', alignItems: 'center', gap: 1,
+          px: 1.5, py: 1, cursor: disabled ? 'default' : 'pointer',
+          bgcolor: '#fafafa',
+          '&:hover': disabled ? {} : { bgcolor: '#f0f0f0' },
+          transition: 'background 0.15s',
+        }}
       >
-        <span className="db-accordion-icon">{icon}</span>
-        <span className="db-accordion-title">{title}</span>
-        {badge !== undefined && badge > 0 && (
-          <span className="db-accordion-badge">{badge}</span>
+        <Box sx={{ display: 'flex', alignItems: 'center', fontSize: '1rem' }}>{icon}</Box>
+        <Typography sx={{ fontWeight: 600, fontSize: '0.82rem', flex: 1, color: '#1a1a2e' }}>
+          {title}
+        </Typography>
+        {badge != null && badge > 0 && (
+          <Chip label={badge} size="small" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700 }} />
         )}
-        <span className="db-accordion-chevron">
-          {isOpen ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
-        </span>
-      </button>
-      {isOpen && !disabled && <div className="db-accordion-content">{children}</div>}
-    </div>
+        {open ? <ExpandMoreIcon sx={{ fontSize: 18, color: '#9e9e9e' }} /> : <ChevronRightIcon sx={{ fontSize: 18, color: '#9e9e9e' }} />}
+      </Box>
+      <Collapse in={open && !disabled}>
+        <Box sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>{children}</Box>
+      </Collapse>
+    </Paper>
   );
 }
 
-// Recursively find .sql files in tree
-function findSqlFiles(tree: Array<{ name: string; path: string; type: string; children?: Array<unknown> }>, basePath: string = ''): SqlFile[] {
-  const sqlFiles: SqlFile[] = [];
-  
-  for (const entry of tree) {
-    const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name;
-    if (entry.type === 'file' && entry.name.endsWith('.sql')) {
-      sqlFiles.push({ name: entry.name, path: entry.path });
-    }
-    if (entry.children && Array.isArray(entry.children)) {
-      sqlFiles.push(...findSqlFiles(entry.children as Array<{ name: string; path: string; type: string; children?: Array<unknown> }>, fullPath));
-    }
-  }
-  
-  return sqlFiles;
-}
-
+/* ══════════════════════════════════════
+   DatabasePanel
+   ══════════════════════════════════════ */
 export default function DatabasePanel() {
   const { tree, folderPath, openFile, supabaseConfig, openSqlQueryTab } = useWorkspace();
   const backend = useBackend();
+
   const [selectedDb, setSelectedDb] = useState<DatabaseType>('none');
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(['connection', 'sql-files']));
   const [tables, setTables] = useState<TableInfo[]>([]);
@@ -95,45 +146,33 @@ export default function DatabasePanel() {
   const [queryInput, setQueryInput] = useState('SELECT * FROM ');
   const [showQueryInput, setShowQueryInput] = useState(false);
 
-  // Detect Supabase and auto-configure PostgreSQL
+  /* ── Derived ── */
   const isSupabaseDetected = supabaseConfig?.detected && supabaseConfig?.projectUrl;
-  const isConnected = isSupabaseDetected; // Connected if Supabase is detected
+  const isConnected = Boolean(isSupabaseDetected);
 
-  // Auto-select PostgreSQL when Supabase is detected
+  /* Auto-select PostgreSQL when Supabase is detected */
   useEffect(() => {
-    if (isSupabaseDetected) {
-      setSelectedDb('postgresql');
-    }
+    if (isSupabaseDetected) setSelectedDb('postgresql');
   }, [isSupabaseDetected]);
 
-  // Find SQL files in the workspace
+  /* SQL files from the workspace tree */
   const sqlFiles = useMemo(() => {
     if (!tree || tree.length === 0) return [];
     return findSqlFiles(tree as Array<{ name: string; path: string; type: string; children?: Array<unknown> }>);
   }, [tree]);
 
-  // Fetch tables when connected to Supabase
+  /* ── Fetch tables ── */
   const fetchTables = async () => {
     if (!supabaseConfig?.projectUrl || !supabaseConfig?.serviceRoleKey) {
       setConnectionError('Missing Supabase credentials');
       return;
     }
-
     setIsLoadingTables(true);
     setConnectionError(null);
-
     try {
-      // Use the IPC handler to fetch tables
-      const result = await backend.supabaseGetTables(
-        supabaseConfig.projectUrl,
-        supabaseConfig.serviceRoleKey
-      );
-
+      const result = await backend.supabaseGetTables(supabaseConfig.projectUrl, supabaseConfig.serviceRoleKey);
       if (result.success) {
-        setTables(result.tables.map(t => ({
-          name: t.table_name,
-          schema: t.table_schema,
-        })));
+        setTables(result.tables.map((t: { table_name: string; table_schema: string }) => ({ name: t.table_name, schema: t.table_schema })));
       } else {
         setConnectionError(result.error || 'Failed to fetch tables');
       }
@@ -144,40 +183,17 @@ export default function DatabasePanel() {
     }
   };
 
-  // Auto-load tables when Supabase is connected
+  /* Auto-load tables when Supabase connected */
   useEffect(() => {
-    if (isSupabaseDetected && supabaseConfig?.serviceRoleKey) {
-      fetchTables();
-    }
+    if (isSupabaseDetected && supabaseConfig?.serviceRoleKey) fetchTables();
   }, [isSupabaseDetected, supabaseConfig?.serviceRoleKey]);
 
   const toggleSection = (section: string) => {
     setOpenSections(prev => {
       const next = new Set(prev);
-      if (next.has(section)) {
-        next.delete(section);
-      } else {
-        next.add(section);
-      }
+      next.has(section) ? next.delete(section) : next.add(section);
       return next;
     });
-  };
-
-  const databaseTypes: { id: DatabaseType; name: string; icon: string }[] = [
-    { id: 'postgresql', name: 'PostgreSQL', icon: '🐘' },
-    { id: 'mysql', name: 'MySQL', icon: '🐬' },
-    { id: 'sqlite', name: 'SQLite', icon: '📁' },
-    { id: 'mongodb', name: 'MongoDB', icon: '🍃' },
-  ];
-
-  const handleOpenSqlFile = (file: SqlFile) => {
-    openFile(file.name, file.path);
-  };
-
-  const handleRunSqlFile = async (file: SqlFile) => {
-    // TODO: When database is connected, execute the SQL file
-    // For now, just open the file
-    openFile(file.name, file.path);
   };
 
   const openSupabaseDashboard = () => {
@@ -186,226 +202,256 @@ export default function DatabasePanel() {
     }
   };
 
+  /* ══════════════════════════════
+     Render
+     ══════════════════════════════ */
   return (
-    <div className="database-panel">
-      <div className="database-panel-header">
-        <DatabaseIcon size={20} />
-        <h2>Database</h2>
-      </div>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.25, borderBottom: '1px solid #e0e0e0' }}>
+        <StorageIcon sx={{ fontSize: 20, color: '#1976d2' }} />
+        <Typography sx={{ fontWeight: 700, fontSize: '0.92rem', color: '#1a1a2e' }}>Database</Typography>
+      </Box>
 
-      <div className="database-panel-content">
-        {/* Connection Accordion */}
-        <AccordionSection
-          title="Connection"
-          icon={isSupabaseDetected ? <SupabaseIcon size={14} /> : "🔌"}
-          isOpen={openSections.has('connection')}
-          onToggle={() => toggleSection('connection')}
-        >
-          <div className="db-connection-status">
-            <span className={`db-status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
-            <span className="db-status-text">
-              {isConnected ? 'Connected via Supabase' : 'Not Connected'}
-            </span>
-          </div>
+      {/* Content */}
+      <Box sx={{ flex: 1, overflowY: 'auto', p: 1.5 }}>
+        <Stack spacing={1.5}>
+          {/* ── Connection ── */}
+          <AccordionSection
+            title="Connection"
+            icon={isSupabaseDetected ? <SupabaseIcon size={16} /> : <LinkIcon sx={{ fontSize: 16, color: '#9e9e9e' }} />}
+            open={openSections.has('connection')}
+            onToggle={() => toggleSection('connection')}
+          >
+            {/* Status chip */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: isConnected ? '#43a047' : '#bdbdbd' }} />
+              <Typography sx={{ fontSize: '0.76rem', fontWeight: 600, color: isConnected ? '#2e7d32' : '#9e9e9e' }}>
+                {isConnected ? 'Connected via Supabase' : 'Not Connected'}
+              </Typography>
+            </Box>
 
-          {isSupabaseDetected ? (
-            <div className="db-supabase-info">
-              <div className="db-supabase-card">
-                <div className="db-supabase-icon">
-                  <SupabaseIcon size={20} />
-                </div>
-                <div className="db-supabase-details">
-                  <span className="db-supabase-project">{supabaseConfig?.projectRef || 'Supabase Project'}</span>
-                  <span className="db-supabase-type">PostgreSQL</span>
-                </div>
-              </div>
-              {supabaseConfig?.projectRef && (
-                <button className="db-dashboard-btn" onClick={openSupabaseDashboard}>
-                  Open Dashboard ↗
-                </button>
-              )}
-              {!supabaseConfig?.serviceRoleKey && (
-                <div className="db-connection-warning">
-                  <span className="db-warning-icon">⚠️</span>
-                  <span className="db-warning-text">
-                    Add SUPABASE_SERVICE_ROLE_KEY to your .env file to enable full database access.
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="db-type-selector">
-                <label className="db-label">Database Type</label>
-                <select 
-                  className="db-select"
-                  value={selectedDb}
-                  onChange={(e) => setSelectedDb(e.target.value as DatabaseType)}
-                  disabled
-                >
-                  <option value="none">Select database type...</option>
-                  {databaseTypes.map(db => (
-                    <option key={db.id} value={db.id}>
-                      {db.icon} {db.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {isSupabaseDetected ? (
+              <Stack spacing={1.5}>
+                {/* Supabase card */}
+                <Paper variant="outlined" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, borderRadius: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: 1, bgcolor: '#e8f5e9' }}>
+                    <SupabaseIcon size={20} />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                      {supabaseConfig?.projectRef || 'Supabase Project'}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.66rem', color: '#9e9e9e' }}>PostgreSQL</Typography>
+                  </Box>
+                </Paper>
 
-              <div className="db-connection-hint">
-                <span className="db-hint-icon">ℹ️</span>
-                <span className="db-hint-text">
+                {supabaseConfig?.projectRef && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+                    onClick={openSupabaseDashboard}
+                    sx={{ textTransform: 'none', fontSize: '0.72rem' }}
+                  >
+                    Open Dashboard
+                  </Button>
+                )}
+
+                {!supabaseConfig?.serviceRoleKey && (
+                  <Alert severity="warning" icon={<WarningAmberIcon fontSize="small" />} sx={{ fontSize: '0.72rem' }}>
+                    Add <code>SUPABASE_SERVICE_ROLE_KEY</code> to your <code>.env</code> file to enable full database access.
+                  </Alert>
+                )}
+              </Stack>
+            ) : (
+              <Stack spacing={1.5}>
+                <FormControl size="small" fullWidth disabled>
+                  <InputLabel>Database Type</InputLabel>
+                  <Select value={selectedDb} label="Database Type" onChange={e => setSelectedDb(e.target.value as DatabaseType)}>
+                    <MenuItem value="none">Select database type…</MenuItem>
+                    {DATABASE_TYPES.map(db => (
+                      <MenuItem key={db.id} value={db.id}>{db.icon} {db.name}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Alert severity="info" icon={<InfoOutlinedIcon fontSize="small" />} sx={{ fontSize: '0.72rem' }}>
                   Database connection coming soon. Configure your connection string to enable database features.
-                </span>
-              </div>
-            </>
-          )}
-        </AccordionSection>
-
-        {/* Tables Accordion */}
-        <AccordionSection
-          title="Tables"
-          icon={<TableIcon size={14} />}
-          isOpen={openSections.has('tables')}
-          onToggle={() => toggleSection('tables')}
-          disabled={!isConnected}
-          badge={tables.length || undefined}
-        >
-          <div className="db-tables-header">
-            <span className="db-tables-count">{tables.length} tables</span>
-            <button 
-              className="db-icon-btn" 
-              title="Refresh tables" 
-              onClick={fetchTables}
-              disabled={!supabaseConfig?.serviceRoleKey || isLoadingTables}
-            >
-              <RefreshIcon size={12} className={isLoadingTables ? 'spinning' : ''} />
-            </button>
-          </div>
-          {connectionError && (
-            <div className="db-error-message">
-              {connectionError}
-            </div>
-          )}
-          {tables.length === 0 && !connectionError ? (
-            <div className="db-empty-state">
-              <p>{supabaseConfig?.serviceRoleKey ? 'Click refresh to load tables' : 'Add service role key to view tables'}</p>
-            </div>
-          ) : (
-            <div className="db-tables-list">
-              {tables.map(table => (
-                <div key={`${table.schema}.${table.name}`} className="db-table-item">
-                  <TableIcon size={12} />
-                  <span className="db-table-name">{table.name}</span>
-                  <span className="db-table-schema">{table.schema}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </AccordionSection>
-
-        {/* Operations Accordion */}
-        <AccordionSection
-          title="Operations"
-          icon="⚡"
-          isOpen={openSections.has('operations')}
-          onToggle={() => toggleSection('operations')}
-          disabled={!isConnected}
-        >
-          <div className="db-action-list">
-            <button className="db-action-item" onClick={fetchTables} disabled={!supabaseConfig?.serviceRoleKey}>
-              <span className="db-action-item-icon"><TableIcon size={14} /></span>
-              <div className="db-action-item-content">
-                <span className="db-action-item-title">List Tables</span>
-                <span className="db-action-item-desc">Show all tables in database</span>
-              </div>
-            </button>
-            <button 
-              className="db-action-item" 
-              onClick={() => setShowQueryInput(!showQueryInput)}
-              disabled={!supabaseConfig?.serviceRoleKey}
-            >
-              <span className="db-action-item-icon">💻</span>
-              <div className="db-action-item-content">
-                <span className="db-action-item-title">Execute Query</span>
-                <span className="db-action-item-desc">Run SQL query</span>
-              </div>
-            </button>
-            
-            {/* Query Input */}
-            {showQueryInput && (
-              <div className="db-query-input-section">
-                <textarea
-                  className="db-query-input"
-                  value={queryInput}
-                  onChange={(e) => setQueryInput(e.target.value)}
-                  placeholder="SELECT * FROM table_name"
-                  rows={3}
-                />
-                <div className="db-query-actions">
-                  <button 
-                    className="db-query-run-btn"
-                    onClick={() => {
-                      if (queryInput.trim()) {
-                        openSqlQueryTab(queryInput.trim());
-                      }
-                    }}
-                    disabled={!queryInput.trim()}
-                  >
-                    <PlayIcon size={12} /> Run Query
-                  </button>
-                </div>
-              </div>
+                </Alert>
+              </Stack>
             )}
-            
-            <button className="db-action-item" disabled>
-              <span className="db-action-item-icon">📊</span>
-              <div className="db-action-item-content">
-                <span className="db-action-item-title">Schema Info</span>
-                <span className="db-action-item-desc">View database schema</span>
-              </div>
-            </button>
-          </div>
-        </AccordionSection>
+          </AccordionSection>
 
-        {/* SQL Files Accordion - Always available */}
-        <AccordionSection
-          title="SQL Files"
-          icon={<SqlFileIcon size={14} />}
-          isOpen={openSections.has('sql-files')}
-          onToggle={() => toggleSection('sql-files')}
-          badge={sqlFiles.length}
-        >
-          {sqlFiles.length === 0 ? (
-            <div className="db-empty-state">
-              <p>No .sql files found in workspace</p>
-            </div>
-          ) : (
-            <div className="db-sql-files-list">
-              {sqlFiles.map(file => (
-                <div key={file.path} className="db-sql-file-item">
-                  <button 
-                    className="db-sql-file-name"
-                    onClick={() => handleOpenSqlFile(file)}
+          {/* ── Tables ── */}
+          <AccordionSection
+            title="Tables"
+            icon={<TableChartIcon sx={{ fontSize: 16, color: '#546e7a' }} />}
+            open={openSections.has('tables')}
+            onToggle={() => toggleSection('tables')}
+            disabled={!isConnected}
+            badge={tables.length || undefined}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography sx={{ fontSize: '0.7rem', color: '#9e9e9e' }}>{tables.length} tables</Typography>
+              <Tooltip title="Refresh tables">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={fetchTables}
+                    disabled={!supabaseConfig?.serviceRoleKey || isLoadingTables}
+                  >
+                    {isLoadingTables
+                      ? <CircularProgress size={14} />
+                      : <RefreshIcon sx={{ fontSize: 16 }} />}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Box>
+
+            {connectionError && (
+              <Alert severity="error" sx={{ fontSize: '0.72rem', mb: 1 }}>{connectionError}</Alert>
+            )}
+
+            {tables.length === 0 && !connectionError ? (
+              <Typography sx={{ fontSize: '0.72rem', color: '#bdbdbd', textAlign: 'center', py: 2 }}>
+                {supabaseConfig?.serviceRoleKey ? 'Click refresh to load tables' : 'Add service role key to view tables'}
+              </Typography>
+            ) : (
+              <List dense disablePadding>
+                {tables.map(table => (
+                  <ListItemButton key={`${table.schema}.${table.name}`} sx={{ borderRadius: 1, py: 0.25 }}>
+                    <ListItemIcon sx={{ minWidth: 28 }}>
+                      <TableChartIcon sx={{ fontSize: 14, color: '#1976d2' }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={table.name}
+                      secondary={table.schema}
+                      primaryTypographyProps={{ fontSize: '0.76rem', fontWeight: 500 }}
+                      secondaryTypographyProps={{ fontSize: '0.6rem' }}
+                    />
+                  </ListItemButton>
+                ))}
+              </List>
+            )}
+          </AccordionSection>
+
+          {/* ── Operations ── */}
+          <AccordionSection
+            title="Operations"
+            icon="⚡"
+            open={openSections.has('operations')}
+            onToggle={() => toggleSection('operations')}
+            disabled={!isConnected}
+          >
+            <Stack spacing={1}>
+              <Button
+                variant="outlined"
+                size="small"
+                fullWidth
+                startIcon={<TableChartIcon sx={{ fontSize: 14 }} />}
+                onClick={fetchTables}
+                disabled={!supabaseConfig?.serviceRoleKey}
+                sx={{ textTransform: 'none', fontSize: '0.72rem', justifyContent: 'flex-start' }}
+              >
+                List Tables
+              </Button>
+
+              <Button
+                variant="outlined"
+                size="small"
+                fullWidth
+                startIcon={<Typography sx={{ fontSize: '0.9rem' }}>💻</Typography>}
+                onClick={() => setShowQueryInput(!showQueryInput)}
+                disabled={!supabaseConfig?.serviceRoleKey}
+                sx={{ textTransform: 'none', fontSize: '0.72rem', justifyContent: 'flex-start' }}
+              >
+                Execute Query
+              </Button>
+
+              <Collapse in={showQueryInput}>
+                <Stack spacing={1} sx={{ mt: 0.5 }}>
+                  <TextField
+                    multiline
+                    rows={3}
+                    size="small"
+                    fullWidth
+                    value={queryInput}
+                    onChange={e => setQueryInput(e.target.value)}
+                    placeholder="SELECT * FROM table_name"
+                    sx={{ '& textarea': { fontFamily: 'monospace', fontSize: '0.72rem' } }}
+                  />
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<PlayArrowIcon sx={{ fontSize: 14 }} />}
+                    onClick={() => { if (queryInput.trim()) openSqlQueryTab(queryInput.trim()); }}
+                    disabled={!queryInput.trim()}
+                    sx={{ textTransform: 'none', fontSize: '0.72rem', alignSelf: 'flex-end' }}
+                  >
+                    Run Query
+                  </Button>
+                </Stack>
+              </Collapse>
+
+              <Button
+                variant="outlined"
+                size="small"
+                fullWidth
+                disabled
+                startIcon={<Typography sx={{ fontSize: '0.9rem' }}>📊</Typography>}
+                sx={{ textTransform: 'none', fontSize: '0.72rem', justifyContent: 'flex-start' }}
+              >
+                Schema Info
+              </Button>
+            </Stack>
+          </AccordionSection>
+
+          {/* ── SQL Files ── */}
+          <AccordionSection
+            title="SQL Files"
+            icon={<DescriptionIcon sx={{ fontSize: 16, color: '#f57c00' }} />}
+            open={openSections.has('sql-files')}
+            onToggle={() => toggleSection('sql-files')}
+            badge={sqlFiles.length}
+          >
+            {sqlFiles.length === 0 ? (
+              <Typography sx={{ fontSize: '0.72rem', color: '#bdbdbd', textAlign: 'center', py: 2 }}>
+                No .sql files found in workspace
+              </Typography>
+            ) : (
+              <List dense disablePadding>
+                {sqlFiles.map(file => (
+                  <ListItemButton
+                    key={file.path}
+                    onClick={() => openFile(file.name, file.path)}
                     title={file.path.replace(folderPath || '', '').replace(/^\//, '')}
+                    sx={{ borderRadius: 1, py: 0.25, pr: 0.5 }}
                   >
-                    <SqlFileIcon size={12} />
-                    <span>{file.name}</span>
-                  </button>
-                  <button 
-                    className="db-sql-run-btn"
-                    onClick={() => handleRunSqlFile(file)}
-                    title={isConnected ? 'Run SQL file' : 'Connect to database to run'}
-                    disabled={!isConnected}
-                  >
-                    <PlayIcon size={10} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </AccordionSection>
-      </div>
-    </div>
+                    <ListItemIcon sx={{ minWidth: 28 }}>
+                      <DescriptionIcon sx={{ fontSize: 14, color: '#f57c00' }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={file.name}
+                      primaryTypographyProps={{ fontSize: '0.76rem', fontWeight: 500 }}
+                    />
+                    <Tooltip title={isConnected ? 'Run SQL file' : 'Connect to database to run'}>
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={!isConnected}
+                          onClick={e => { e.stopPropagation(); openFile(file.name, file.path); }}
+                        >
+                          <PlayArrowIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </ListItemButton>
+                ))}
+              </List>
+            )}
+          </AccordionSection>
+        </Stack>
+      </Box>
+    </Box>
   );
 }

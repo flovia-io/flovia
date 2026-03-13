@@ -16,6 +16,12 @@ export interface WfNodeData {
   durationMs?: number;
   output?: unknown;
   error?: string;
+  /** Pinned data — fixed input for testing (like n8n pinData) */
+  pinnedData?: unknown;
+  /** Live streaming output shown on the canvas while a node is running */
+  liveOutput?: string;
+  /** True when the user has dismissed the live output bubble */
+  outputDismissed?: boolean;
   [key: string]: unknown;
 }
 
@@ -51,4 +57,17 @@ export interface RunStep {
   input?: unknown;
   output?: unknown;
   error?: string;
+}
+
+/** Per-run input/output snapshot for a single node execution (used in debug view) */
+export interface NodeRunInfo {
+  runIndex: number;
+  status: string;
+  durationMs?: number;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+  tokens?: { total: number; prompt?: number; completion?: number };
+  timestamp?: string;
+  type?: string;
 }

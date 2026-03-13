@@ -87,9 +87,10 @@ interface ActivityBarProps {
 }
 
 export default function ActivityBar({ onToggleTerminal, terminalVisible }: ActivityBarProps) {
-  const { activePanel, setActivePanel, hasGit, npmProjects, gitSplitChanges, openAgentsTab, openWorkflowEditor, openDebugTraceTab } = useWorkspace();
+  const { activePanel, setActivePanel, hasGit, npmProjects, gitSplitChanges, openAgentsTab, openWorkflowEditor, openDebugTraceTab, folderPath } = useWorkspace();
   const backend = useBackend();
   const [promptSettingsOpen, setPromptSettingsOpen] = useState(false);
+  const isEditing = !!folderPath;
 
   // Listen for menu-triggered open prompts
   useEffect(() => {
@@ -268,24 +269,26 @@ export default function ActivityBar({ onToggleTerminal, terminalVisible }: Activ
           </IconButton>
         </Tooltip>
 
-        {/* AI Debug Trace */}
-        <Tooltip title="AI Debug — view all agent calls" placement="right">
-          <IconButton
-            onClick={() => openDebugTraceTab()}
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 1.5,
-              color: 'text.secondary',
-              '&:hover': {
-                bgcolor: 'rgba(0,0,0,0.05)',
-                color: 'text.primary',
-              },
-            }}
-          >
-            <span style={{ fontSize: 18 }}>🐛</span>
-          </IconButton>
-        </Tooltip>
+        {/* AI Debug Trace — only visible when editing (workspace open) */}
+        {isEditing && (
+          <Tooltip title="AI Debug — view all agent calls" placement="right">
+            <IconButton
+              onClick={() => openDebugTraceTab()}
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 1.5,
+                color: 'text.secondary',
+                '&:hover': {
+                  bgcolor: 'rgba(0,0,0,0.05)',
+                  color: 'text.primary',
+                },
+              }}
+            >
+              <span style={{ fontSize: 18 }}>🐛</span>
+            </IconButton>
+          </Tooltip>
+        )}
 
         {/* New Window */}
         <Tooltip title="New Window" placement="right">

@@ -108,22 +108,46 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
       let result: { success: boolean; data?: unknown; error?: string };
 
       if (node.data.nodeType === 'action') {
+        const configType = cfg.type as string | undefined;
         const connectorId = cfg.connectorId as string;
         const actionId = cfg.actionId as string;
-        if (!connectorId || !actionId) {
+
+        // Tool-type sub-nodes (File Tools, Terminal) don't need a connector
+        // They are capability declarations for an AI Agent hub node
+        if (configType === 'tools' && !connectorId && !actionId) {
+          const tools = (cfg.tools as string[]) || [];
+          result = {
+            success: true,
+            data: {
+              type: 'tool-definition',
+              tools,
+              message: `Tool node provides: ${tools.join(', ')}`,
+            },
+          };
+        } else if (configType === 'memory') {
+          result = {
+            success: true,
+            data: {
+              type: 'memory-definition',
+              memoryType: cfg.memoryType || 'window',
+              message: 'Memory node configured',
+            },
+          };
+        } else if (!connectorId || !actionId) {
           setExecResult({ success: false, error: 'Select a connector and action first' });
           onUpdateNodeData(node.id, { status: 'failed' });
           setExecuting(false);
           return;
-        }
-        // Collect params from cfg (everything except connectorId / actionId)
-        const params: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(cfg)) {
-          if (k !== 'connectorId' && k !== 'actionId' && v !== '' && v != null) {
-            params[k] = v;
+        } else {
+          // Collect params from cfg (everything except connectorId / actionId)
+          const params: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(cfg)) {
+            if (k !== 'connectorId' && k !== 'actionId' && v !== '' && v != null) {
+              params[k] = v;
+            }
           }
+          result = await backend.connectorExecute(connectorId, actionId, params);
         }
-        result = await backend.connectorExecute(connectorId, actionId, params);
       } else if (node.data.nodeType === 'httpRequest') {
         // Basic HTTP request execution
         const method = (cfg.method as string) || 'GET';
@@ -1003,6 +1027,97 @@ function ActionConfig({ node, cfg, onUpdate }: ConfigProps) {
   }, [backend, cfg.connectorId, node.data.nodeType]);
 
   if (node.data.nodeType !== 'action') return null;
+
+  // ── Tool-type sub-node (File Tools, Terminal, etc.) — no connector needed ──
+  const configType = cfg.type as string | undefined;
+  if (configType === 'tools' && !cfg.connectorId && !cfg.actionId) {
+    const tools = (cfg.tools as string[]) || [];
+    const AVAILABLE_TOOLS = [
+      { id: 'file-read', label: '📖 Read Files' },
+      { id: 'file-write', label: '💾 Write Files' },
+      { id: 'file-search', label: '🔍 Search Files' },
+      { id: 'file-tree', label: '🗂️ File Tree' },
+      { id: 'terminal', label: '💻 Terminal' },
+      { id: 'browser', label: '🌐 Browse URLs' },
+    ];
+
+    return (
+      <>
+        <Alert severity="info" sx={{ mb: 2, fontSize: 11 }}>
+          This is a <strong>tool sub-node</strong> — it provides capabilities to the connected AI Agent hub.
+          No credentials are needed.
+        </Alert>
+        <Typography variant="caption" fontWeight={700} sx={{ mb: 1, display: 'block', color: 'text.secondary' }}>
+          Enabled Tools
+        </Typography>
+        <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+          <InputLabel>Tools</InputLabel>
+          <Select
+            multiple
+            value={tools}
+            label="Tools"
+            onChange={(e) => onUpdate(node.id, {
+              config: { ...cfg, tools: e.target.value as string[] },
+            })}
+            renderValue={(selected) => (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {(selected as string[]).map(v => {
+                  const tool = AVAILABLE_TOOLS.find(t => t.id === v);
+                  return <Chip key={v} label={tool?.label || v} size="small" sx={{ height: 20, fontSize: 10 }} />;
+                })}
+              </Box>
+            )}
+          >
+            {AVAILABLE_TOOLS.map(tool => (
+              <MenuItem key={tool.id} value={tool.id}>
+                <Checkbox checked={tools.includes(tool.id)} size="small" />
+                <ListItemText primary={tool.label} />
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </>
+    );
+  }
+
+  // ── Memory-type sub-node ──
+  if (configType === 'memory') {
+    return (
+      <>
+        <Alert severity="info" sx={{ mb: 2, fontSize: 11 }}>
+          This is a <strong>memory sub-node</strong> — it manages conversation context for the connected AI Agent.
+          No credentials are needed.
+        </Alert>
+        <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+          <InputLabel>Memory Type</InputLabel>
+          <Select
+            value={(cfg.memoryType as string) || 'window'}
+            label="Memory Type"
+            onChange={(e) => onUpdate(node.id, {
+              config: { ...cfg, memoryType: e.target.value },
+              subtitle: `${e.target.value} memory`,
+            })}
+          >
+            <MenuItem value="window">Window Buffer</MenuItem>
+            <MenuItem value="full">Full History</MenuItem>
+            <MenuItem value="summary">Summary</MenuItem>
+          </Select>
+        </FormControl>
+        <TextField
+          label="Window Size"
+          size="small"
+          type="number"
+          fullWidth
+          value={(cfg.windowSize as number) || 20}
+          onChange={(e) => onUpdate(node.id, {
+            config: { ...cfg, windowSize: parseInt(e.target.value) || 20 },
+          })}
+          helperText="Number of recent messages to retain in context"
+          sx={{ mb: 2 }}
+        />
+      </>
+    );
+  }
 
   const selectedConnector = connectors.find(c => c.id === (cfg.connectorId as string));
   const selectedAction = actions.find(a => a.id === (cfg.actionId as string));

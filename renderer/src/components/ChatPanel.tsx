@@ -624,6 +624,7 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
           onOpenSettings={() => setSettingsOpen(true)}
           onCollapse={onCollapse}
           showClear={messages.length > 0}
+          isEditing={!!folderPath}
         />
 
         {/* Messages */}

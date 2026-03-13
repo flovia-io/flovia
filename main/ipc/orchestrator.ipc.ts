@@ -312,10 +312,39 @@ export function registerOrchestratorIpc(): void {
             break;
           }
 
-          // ── Connector Action ──────────────────────────────────────────────
+          // ── Connector Action (or Tool-type sub-node) ───────────────────────
           case 'action': {
+            const configType = resolvedCfg.type as string | undefined;
             const connectorId = resolvedCfg.connectorId as string;
             const actionId = resolvedCfg.actionId as string;
+
+            // Tool-type sub-nodes (File Tools, Terminal, etc.) don't need a connector.
+            // They declare config.type === 'tools' with a tools[] array.
+            // These are sub-nodes of an AI Agent hub — they describe capabilities,
+            // not standalone executable actions. Pass through with metadata.
+            if (configType === 'tools' && !connectorId && !actionId) {
+              const tools = (resolvedCfg.tools as string[]) || [];
+              output = {
+                type: 'tool-definition',
+                tools,
+                message: `Tool node "${node.data?.label || node.id}" provides: ${tools.join(', ')}`,
+                input,
+              };
+              break;
+            }
+
+            // Memory-type sub-nodes (Chat Memory) — same pattern
+            if (configType === 'memory') {
+              output = {
+                type: 'memory-definition',
+                memoryType: resolvedCfg.memoryType || 'window',
+                windowSize: resolvedCfg.windowSize || 20,
+                message: `Memory node "${node.data?.label || node.id}" configured`,
+                input,
+              };
+              break;
+            }
+
             if (!connectorId || !actionId) {
               throw new Error('Action node missing connectorId or actionId');
             }

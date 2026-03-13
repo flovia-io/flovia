@@ -9,6 +9,8 @@ interface ChatHeaderProps {
   onOpenSettings: () => void;
   onCollapse?: () => void;
   showClear: boolean;
+  /** When false (production / no workspace), the debug button is hidden */
+  isEditing?: boolean;
 }
 
 /**
@@ -23,6 +25,7 @@ export default function ChatHeader({
   onOpenSettings,
   onCollapse,
   showClear,
+  isEditing = true,
 }: ChatHeaderProps) {
   return (
     <div className="chat-hdr">
@@ -40,13 +43,15 @@ export default function ChatHeader({
         <button className="chat-hdr-btn" onClick={onNewChat} title="New Chat">
           <PlusIcon />
         </button>
-        <button
-          className="chat-hdr-btn"
-          onClick={onDebugOpen}
-          title="Session Debug — view all prompts sent to the AI"
-        >
-          🐛
-        </button>
+        {isEditing && (
+          <button
+            className="chat-hdr-btn"
+            onClick={onDebugOpen}
+            title="Session Debug — view all prompts sent to the AI"
+          >
+            🐛
+          </button>
+        )}
         {showClear && (
           <button className="chat-hdr-btn" onClick={onClearChat} title="Clear chat">
             🗑

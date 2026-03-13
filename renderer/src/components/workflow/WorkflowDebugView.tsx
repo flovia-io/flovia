@@ -1,12 +1,13 @@
 /**
  * WorkflowDebugView — Unified debug/trace view that renders agent execution
- * on top of the actual workflow editor canvas.
+ * on top of the actual workflow editor canvas in read-only mode.
  *
  * Features:
- *  • Shows the agent pipeline as a ReactFlow graph (same nodes/edges as the pipeline canvas)
- *  • Overlays execution data (status, duration, input/output) on each node
+ *  • Uses the SAME WorkflowNode component as the editor (read-only, no dragging)
+ *  • Overlays execution data (status, duration, output, error, liveOutput) from traces
  *  • Groups trace steps by node — if a node is hit multiple times (loops), shows "Run 1", "Run 2", etc.
- *  • Expandable data table below each node with structured input/output per run
+ *  • Right-side detail panel for deep inspection of node runs
+ *  • Orphan steps (sub-steps not in the pipeline) rendered as dashed "sub-step" cards
  *  • Shares visual primitives with ExecutionViewParts for consistency
  */
 import { useState, useMemo, useCallback } from 'react';
@@ -47,7 +48,10 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
 
 import type { AgentTrace, TraceStep, AgentNode as AgentNodeType, AgentEdge as AgentEdgeType, PhaseCategory } from '../../types/agent.types';
-import { DataBlock, formatDuration } from '../shared/ExecutionViewParts';
+import { DataBlock, formatDuration, STATUS_COLORS } from '../shared/ExecutionViewParts';
+import { WorkflowNode } from './WorkflowNode';
+import { getPaletteForType } from './workflow.constants';
+import type { WfNodeData } from './workflow.types';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -59,11 +63,6 @@ const categoryColors: Record<string, { bg: string; border: string; accent: strin
   execution:      { bg: '#ffebee', border: '#e53935', accent: '#c62828' },
   verification:   { bg: '#e0f2f1', border: '#00897b', accent: '#00695c' },
   output:         { bg: '#eceff1', border: '#546e7a', accent: '#37474f' },
-};
-
-const categoryLabels: Record<string, string> = {
-  entry: 'Entry', classification: 'Classification', research: 'Research',
-  planning: 'Planning', execution: 'Execution', verification: 'Verification', output: 'Output',
 };
 
 // ─── Per-node grouped runs ──────────────────────────────────────────────────
@@ -114,113 +113,169 @@ function getStatusIcon(status: string, size = 16) {
   }
 }
 
-// ─── Debug Node (ReactFlow custom node with inline debug data) ──────────────
-
-interface DebugNodeData extends Record<string, unknown> {
-  label: string;
-  description: string;
-  category: PhaseCategory;
-  icon: string;
-  enabled: boolean;
-  nodeId: string;
-  /** Grouped runs for this node from the active trace */
-  runGroup: NodeRunGroup | null;
-  /** Whether this node is currently selected/expanded */
-  isSelected: boolean;
-  onSelect: (nodeId: string) => void;
+// Map trace status → WfNodeData status
+function traceStatusToNodeStatus(status: string): WfNodeData['status'] {
+  if (status === 'success') return 'completed';
+  if (status === 'error') return 'failed';
+  if (status === 'running') return 'running';
+  if (status === 'skipped') return 'skipped';
+  return 'pending';
 }
 
-function DebugFlowNode({ data }: NodeProps<Node<DebugNodeData>>) {
-  const colors = categoryColors[data.category] || categoryColors.output;
-  const group = data.runGroup;
-  const hasRuns = group && group.runs.length > 0;
-  const lastRun = hasRuns ? group!.runs[group!.runs.length - 1] : null;
-  const overallStatus = lastRun?.status || (data.enabled ? 'pending' : 'skipped');
-  const borderColor = hasRuns
-    ? (overallStatus === 'success' ? '#22c55e' : overallStatus === 'error' ? '#ef4444' : overallStatus === 'running' ? '#3b82f6' : colors.border)
-    : (data.enabled ? colors.border : '#bdbdbd');
-  const totalDuration = hasRuns ? group!.runs.reduce((sum, r) => sum + (r.durationMs || 0), 0) : undefined;
+// Map agent pipeline category → nodeType for palette lookup
+function categoryToNodeType(category: PhaseCategory): string {
+  switch (category) {
+    case 'entry': return 'trigger';
+    case 'classification': return 'decision';
+    case 'research': return 'llm';
+    case 'planning': return 'llm';
+    case 'execution': return 'developer';
+    case 'verification': return 'llm';
+    case 'output': return 'output';
+    default: return 'llm';
+  }
+}
+
+// ─── Node types: actual WorkflowNode + orphan sub-step node ─────────────────
+
+/** Orphan node visual style (dashed border for sub-steps not mapped to pipeline) */
+interface OrphanNodeData extends WfNodeData {
+  /** Callback when clicked — opens detail panel */
+  onOrphanClick?: (nodeId: string) => void;
+  _orphanNodeId?: string;
+}
+
+function OrphanFlowNode({ id, data, selected }: NodeProps<Node<OrphanNodeData>>) {
+  const colors = categoryColors[(data as any).category] || categoryColors.output;
+  const borderColor = data.status ? (STATUS_COLORS[data.status] || colors.border) : colors.border;
 
   return (
     <Box sx={{ position: 'relative' }}>
       <Paper
-        elevation={data.isSelected ? 8 : 2}
-        onClick={() => data.onSelect(data.nodeId)}
+        elevation={selected ? 6 : 1}
+        onClick={() => data.onOrphanClick?.((data as any)._orphanNodeId || id)}
         sx={{
-          background: !data.enabled ? '#f5f5f5' : '#fff',
-          borderLeft: `4px solid ${borderColor}`,
+          background: '#fffde7',
+          border: `2px dashed ${borderColor}`,
           borderRadius: '10px',
-          p: '10px 14px',
-          minWidth: 230,
-          maxWidth: 310,
-          opacity: !data.enabled ? 0.5 : 1,
+          p: '8px 12px',
+          minWidth: 200,
+          maxWidth: 260,
           cursor: 'pointer',
           transition: 'all 0.2s ease',
-          outline: data.isSelected ? `2px solid ${borderColor}` : 'none',
-          '&:hover': { boxShadow: 6 },
+          outline: selected ? `2px solid ${borderColor}` : 'none',
+          '&:hover': { boxShadow: 4 },
         }}
       >
-        <Handle type="target" position={Position.Top} style={{ background: borderColor, width: 10, height: 10, border: '2px solid #fff' }} />
+        <Handle type="target" position={Position.Left} style={{ background: borderColor, width: 8, height: 8, border: '2px solid #fff' }} />
 
-        {/* Header row */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-          <Chip label={categoryLabels[data.category] || data.category} size="small"
-            sx={{ height: 18, fontSize: '0.6rem', fontWeight: 700, bgcolor: `${colors.accent}14`, color: colors.accent, border: `1px solid ${colors.accent}30` }} />
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            {hasRuns && getStatusIcon(overallStatus, 16)}
-            {hasRuns && group!.runs.length > 1 && (
-              <Chip label={`×${group!.runs.length}`} size="small" sx={{ height: 18, fontSize: '0.55rem', fontWeight: 700, bgcolor: '#e3f2fd', color: '#1976d2' }} />
-            )}
-          </Box>
+        {/* Header */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+          <Chip label="Sub-step" size="small"
+            sx={{ height: 16, fontSize: '0.5rem', fontWeight: 700, bgcolor: '#fff8e1', color: '#f57f17', border: '1px solid #ffe082' }} />
+          <Box sx={{ flex: 1 }} />
+          {data.status && getStatusIcon(data.status === 'completed' ? 'success' : data.status === 'failed' ? 'error' : data.status, 14)}
         </Box>
 
         {/* Title */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
-          <Typography sx={{ fontSize: '1.15rem', lineHeight: 1 }}>{data.icon}</Typography>
-          <Typography sx={{ fontWeight: 700, fontSize: '0.82rem', color: '#1a1a2e' }}>{data.label}</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.25 }}>
+          <Typography sx={{ fontSize: '0.95rem', lineHeight: 1 }}>{data.icon}</Typography>
+          <Typography sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#5d4037' }}>{data.label}</Typography>
         </Box>
 
-        {/* Type + Duration */}
-        {hasRuns && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-            <Typography sx={{ fontSize: '0.62rem', color: '#9e9e9e' }}>{lastRun!.type}</Typography>
-            {totalDuration != null && totalDuration > 0 && (
-              <Typography sx={{ fontSize: '0.62rem', color: '#78909c', ml: 'auto' }}>{formatDuration(totalDuration)}</Typography>
+        {/* Duration + error */}
+        {(data.durationMs != null || data.error) && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25 }}>
+            {data.durationMs != null && data.durationMs > 0 && (
+              <Typography sx={{ fontSize: '0.58rem', color: '#78909c' }}>{formatDuration(data.durationMs)}</Typography>
+            )}
+            {data.error && (
+              <Typography sx={{ fontSize: '0.58rem', color: '#ef4444', fontWeight: 600, flex: 1 }} noWrap>
+                ⚠ {data.error}
+              </Typography>
             )}
           </Box>
         )}
 
-        {/* Tokens */}
-        {hasRuns && lastRun?.tokens && (
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            {(['prompt', 'completion', 'total'] as const).map(k => (
-              <Chip key={k} size="small" label={`${k[0].toUpperCase()}: ${lastRun!.tokens![k]}`}
-                sx={{ height: 16, fontSize: '0.5rem', bgcolor: '#f5f3ff', color: '#7c3aed', fontFamily: 'monospace' }} />
-            ))}
-          </Box>
-        )}
-
-        {/* Error */}
-        {hasRuns && lastRun?.error && (
-          <Typography sx={{ fontSize: '0.62rem', color: '#ef4444', mt: 0.5, fontWeight: 600 }}>⚠ {lastRun.error}</Typography>
-        )}
-
-        <Handle type="source" position={Position.Bottom} style={{ background: borderColor, width: 10, height: 10, border: '2px solid #fff' }} />
+        <Handle type="source" position={Position.Right} style={{ background: borderColor, width: 8, height: 8, border: '2px solid #fff' }} />
       </Paper>
     </Box>
   );
 }
 
-// (debugNodeTypes replaced by allNodeTypes which includes orphanNode)
+const debugNodeTypes: NodeTypes = {
+  workflowNode: WorkflowNode as any,
+  orphanNode: OrphanFlowNode as any,
+};
+
+// ─── Orphan step detection & positioning ────────────────────────────────────
+
+const orphanTypeIcons: Record<string, string> = {
+  'llm-call': '🧠',
+  'tool-call': '🔧',
+  'file-read': '📖',
+  'file-write': '💾',
+  'file-search': '🔍',
+  'text-search': '🔎',
+  'integration-call': '🔌',
+  'decision': '🤔',
+};
+
+interface OrphanNodeInfo {
+  nodeId: string;
+  label: string;
+  icon: string;
+  category: PhaseCategory;
+  position: { x: number; y: number };
+  parentNodeId: string | null;
+}
+
+function findOrphanSteps(
+  steps: TraceStep[],
+  pipelineNodeIds: Set<string>,
+  pipelineNodes: AgentNodeType[],
+): OrphanNodeInfo[] {
+  const orphanMap = new Map<string, { steps: TraceStep[] }>();
+  for (const step of steps) {
+    if (pipelineNodeIds.has(step.nodeId)) continue;
+    const existing = orphanMap.get(step.nodeId);
+    if (existing) { existing.steps.push(step); }
+    else { orphanMap.set(step.nodeId, { steps: [step] }); }
+  }
+
+  if (orphanMap.size === 0) return [];
+
+  const orphans: OrphanNodeInfo[] = [];
+  let orphanIndex = 0;
+
+  for (const [nodeId, { steps: orphanSteps }] of orphanMap) {
+    const first = orphanSteps[0];
+    const sameCategory = pipelineNodes.filter(n => n.category === first.category);
+    const parent = sameCategory.length > 0 ? sameCategory[0] : pipelineNodes[0];
+    const baseX = (parent?.position?.x ?? 600) + 380;
+    const baseY = (parent?.position?.y ?? 0) + orphanIndex * 120;
+
+    orphans.push({
+      nodeId,
+      label: first.nodeLabel,
+      icon: orphanTypeIcons[first.type] || '⚡',
+      category: first.category,
+      position: { x: baseX, y: baseY },
+      parentNodeId: parent?.id || null,
+    });
+    orphanIndex++;
+  }
+
+  return orphans;
+}
 
 // ─── Data Table for a single step run ───────────────────────────────────────
 
 function StepRunDataTable({ step, runIndex }: { step: TraceStep; runIndex: number }) {
-  const [tab, setTab] = useState(0); // 0=input, 1=output, 2=info
+  const [tab, setTab] = useState(0);
 
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden', mb: 1 }}>
-      {/* Run header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, bgcolor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
         {getStatusIcon(step.status, 14)}
         <Typography sx={{ fontWeight: 700, fontSize: '0.72rem', color: '#334155' }}>Run #{runIndex + 1}</Typography>
@@ -233,7 +288,6 @@ function StepRunDataTable({ step, runIndex }: { step: TraceStep; runIndex: numbe
         )}
       </Box>
 
-      {/* Mini tabs */}
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{
         minHeight: 28, borderBottom: '1px solid #f0f0f0',
         '& .MuiTab-root': { minHeight: 28, fontSize: '0.65rem', textTransform: 'none', py: 0.25, px: 1.5, minWidth: 'auto' },
@@ -303,6 +357,24 @@ function NodeDebugDetail({ group, nodeDef }: { group: NodeRunGroup; nodeDef?: Ag
         />
       </Box>
 
+      {/* Error banner for failed runs */}
+      {group.runs.some(r => r.status === 'error') && (
+        <Box sx={{
+          mb: 2, p: 1.5, borderRadius: 2,
+          border: '1px solid #fca5a5', bgcolor: '#fef2f2',
+        }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#991b1b', mb: 0.5 }}>⚠ Error</Typography>
+          {group.runs.filter(r => r.error).map((r, i) => (
+            <Typography key={i} sx={{
+              fontSize: 11, fontFamily: '"JetBrains Mono", monospace',
+              color: '#b91c1c', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            }}>
+              {r.error}
+            </Typography>
+          ))}
+        </Box>
+      )}
+
       {/* Runs summary table */}
       <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, mb: 2 }}>
         <Table size="small" sx={{ '& .MuiTableCell-root': { fontSize: '0.68rem', py: 0.5, px: 1 } }}>
@@ -344,146 +416,6 @@ function NodeDebugDetail({ group, nodeDef }: { group: NodeRunGroup; nodeDef?: Ag
   );
 }
 
-// ─── Orphan node visual style (dashed border for sub-steps) ─────────────────
-
-const orphanTypeIcons: Record<string, string> = {
-  'llm-call': '🧠',
-  'tool-call': '🔧',
-  'file-read': '📖',
-  'file-write': '💾',
-  'file-search': '🔍',
-  'text-search': '🔎',
-  'integration-call': '🔌',
-  'decision': '🤔',
-};
-
-function OrphanFlowNode({ data }: NodeProps<Node<DebugNodeData>>) {
-  const colors = categoryColors[data.category] || categoryColors.output;
-  const group = data.runGroup;
-  const hasRuns = group && group.runs.length > 0;
-  const lastRun = hasRuns ? group!.runs[group!.runs.length - 1] : null;
-  const overallStatus = lastRun?.status || 'pending';
-  const borderColor = hasRuns
-    ? (overallStatus === 'success' ? '#22c55e' : overallStatus === 'error' ? '#ef4444' : overallStatus === 'running' ? '#3b82f6' : colors.border)
-    : colors.border;
-
-  return (
-    <Box sx={{ position: 'relative' }}>
-      <Paper
-        elevation={data.isSelected ? 6 : 1}
-        onClick={() => data.onSelect(data.nodeId)}
-        sx={{
-          background: '#fffde7',
-          border: `2px dashed ${borderColor}`,
-          borderRadius: '10px',
-          p: '8px 12px',
-          minWidth: 200,
-          maxWidth: 260,
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          outline: data.isSelected ? `2px solid ${borderColor}` : 'none',
-          '&:hover': { boxShadow: 4 },
-        }}
-      >
-        <Handle type="target" position={Position.Top} style={{ background: borderColor, width: 8, height: 8, border: '2px solid #fff' }} />
-
-        {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.25 }}>
-          <Chip label="Sub-step" size="small"
-            sx={{ height: 16, fontSize: '0.5rem', fontWeight: 700, bgcolor: '#fff8e1', color: '#f57f17', border: '1px solid #ffe082' }} />
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            {hasRuns && getStatusIcon(overallStatus, 14)}
-            {hasRuns && group!.runs.length > 1 && (
-              <Chip label={`×${group!.runs.length}`} size="small" sx={{ height: 16, fontSize: '0.5rem', fontWeight: 700, bgcolor: '#e3f2fd', color: '#1976d2' }} />
-            )}
-          </Box>
-        </Box>
-
-        {/* Title */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.25 }}>
-          <Typography sx={{ fontSize: '0.95rem', lineHeight: 1 }}>{data.icon}</Typography>
-          <Typography sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#5d4037' }}>{data.label}</Typography>
-        </Box>
-
-        {/* Type + Duration */}
-        {hasRuns && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography sx={{ fontSize: '0.58rem', color: '#9e9e9e', fontFamily: 'monospace' }}>{lastRun!.type}</Typography>
-            {lastRun!.durationMs != null && lastRun!.durationMs > 0 && (
-              <Typography sx={{ fontSize: '0.58rem', color: '#78909c', ml: 'auto' }}>{formatDuration(lastRun!.durationMs)}</Typography>
-            )}
-          </Box>
-        )}
-
-        <Handle type="source" position={Position.Bottom} style={{ background: borderColor, width: 8, height: 8, border: '2px solid #fff' }} />
-      </Paper>
-    </Box>
-  );
-}
-
-const allNodeTypes: NodeTypes = { debugNode: DebugFlowNode, orphanNode: OrphanFlowNode };
-
-// ─── Orphan step detection & positioning ────────────────────────────────────
-
-interface OrphanNodeInfo {
-  nodeId: string;
-  label: string;
-  icon: string;
-  category: PhaseCategory;
-  /** Computed position next to the nearest category-matching pipeline node */
-  position: { x: number; y: number };
-  /** Which pipeline node this is logically closest to (for edge drawing) */
-  parentNodeId: string | null;
-}
-
-/**
- * Find trace steps whose nodeId doesn't match any pipeline node,
- * group them, and compute positions for floating orphan nodes.
- */
-function findOrphanSteps(
-  steps: TraceStep[],
-  pipelineNodeIds: Set<string>,
-  pipelineNodes: AgentNodeType[],
-): OrphanNodeInfo[] {
-  // Collect unique orphan nodeIds
-  const orphanMap = new Map<string, { steps: TraceStep[] }>();
-  for (const step of steps) {
-    if (pipelineNodeIds.has(step.nodeId)) continue;
-    const existing = orphanMap.get(step.nodeId);
-    if (existing) { existing.steps.push(step); }
-    else { orphanMap.set(step.nodeId, { steps: [step] }); }
-  }
-
-  if (orphanMap.size === 0) return [];
-
-  const orphans: OrphanNodeInfo[] = [];
-  let orphanIndex = 0;
-
-  for (const [nodeId, { steps: orphanSteps }] of orphanMap) {
-    const first = orphanSteps[0];
-
-    // Find the closest pipeline node of the same category for positioning
-    const sameCategory = pipelineNodes.filter(n => n.category === first.category);
-    const parent = sameCategory.length > 0 ? sameCategory[0] : pipelineNodes[0];
-
-    // Position orphans to the right of their parent category node, stacked vertically
-    const baseX = (parent?.position?.x ?? 600) + 380;
-    const baseY = (parent?.position?.y ?? 0) + orphanIndex * 120;
-
-    orphans.push({
-      nodeId,
-      label: first.nodeLabel,
-      icon: orphanTypeIcons[first.type] || '⚡',
-      category: first.category,
-      position: { x: baseX, y: baseY },
-      parentNodeId: parent?.id || null,
-    });
-    orphanIndex++;
-  }
-
-  return orphans;
-}
-
 // ─── Main WorkflowDebugView ─────────────────────────────────────────────────
 
 export interface WorkflowDebugViewProps {
@@ -510,50 +442,78 @@ export function WorkflowDebugView({ trace, pipelineNodes, pipelineEdges }: Workf
     [trace.steps, pipelineNodeIds, pipelineNodes],
   );
 
-  // Convert pipeline nodes to ReactFlow debug nodes
-  const flowNodes = useMemo((): Node<DebugNodeData>[] => {
-    // Regular pipeline nodes
-    const pipelineFlowNodes: Node<DebugNodeData>[] = pipelineNodes.map(n => ({
-      id: n.id,
-      type: 'debugNode',
-      position: n.position,
-      data: {
-        label: n.label,
-        description: n.description,
-        category: n.category,
-        icon: n.icon,
-        enabled: n.enabled,
-        nodeId: n.id,
-        runGroup: runGroups.get(n.id) || null,
-        isSelected: selectedNodeId === n.id,
-        onSelect: handleNodeSelect,
-      },
-    }));
+  // Convert pipeline nodes → actual WorkflowNode-compatible ReactFlow nodes
+  // prefilled with execution data from the trace (read-only debug overlay)
+  const flowNodes = useMemo((): Node<WfNodeData>[] => {
+    // Regular pipeline nodes — render using the SAME WorkflowNode as the editor
+    const pipelineFlowNodes: Node<WfNodeData>[] = pipelineNodes.map(n => {
+      const group = runGroups.get(n.id);
+      const lastRun = group ? group.runs[group.runs.length - 1] : null;
+      const overallStatus = lastRun
+        ? traceStatusToNodeStatus(lastRun.status)
+        : (n.enabled ? undefined : 'skipped');
+      const totalDuration = group
+        ? group.runs.reduce((sum, r) => sum + (r.durationMs || 0), 0)
+        : undefined;
+      const lastError = lastRun?.error;
+      const lastOutput = lastRun?.output;
+      const outputText = lastOutput != null
+        ? (typeof lastOutput === 'string' ? lastOutput : (lastOutput as any)?.text || (lastOutput as any)?.reply || JSON.stringify(lastOutput, null, 2))
+        : undefined;
 
-    // Orphan nodes (sub-steps not mapped to pipeline)
-    const orphanFlowNodes: Node<DebugNodeData>[] = orphanNodes.map(o => ({
-      id: o.nodeId,
-      type: 'orphanNode',
-      position: o.position,
-      data: {
-        label: o.label,
-        description: `Sub-step not mapped to a pipeline node`,
-        category: o.category,
-        icon: o.icon,
-        enabled: true,
-        nodeId: o.nodeId,
-        runGroup: runGroups.get(o.nodeId) || null,
-        isSelected: selectedNodeId === o.nodeId,
-        onSelect: handleNodeSelect,
-      },
-    }));
+      return {
+        id: n.id,
+        type: 'workflowNode',
+        position: n.position,
+        selected: selectedNodeId === n.id,
+        data: {
+          label: n.label,
+          icon: n.icon,
+          nodeType: categoryToNodeType(n.category),
+          config: {},
+          subtitle: n.description,
+          status: overallStatus,
+          durationMs: totalDuration,
+          error: lastError,
+          output: lastOutput,
+          itemCount: group ? group.runs.length : undefined,
+          // Show output text in live output bubble if the step has output
+          liveOutput: outputText?.slice(0, 500),
+          outputDismissed: !outputText, // Only show bubble if there's output
+        },
+      };
+    });
+
+    // Orphan nodes (sub-steps not mapped to pipeline) — dashed cards
+    const orphanFlowNodes: Node<OrphanNodeData>[] = orphanNodes.map(o => {
+      const group = runGroups.get(o.nodeId);
+      const lastRun = group ? group.runs[group.runs.length - 1] : null;
+
+      return {
+        id: o.nodeId,
+        type: 'orphanNode',
+        position: o.position,
+        selected: selectedNodeId === o.nodeId,
+        data: {
+          label: o.label,
+          icon: o.icon,
+          nodeType: 'action',
+          config: {},
+          category: o.category,
+          status: lastRun ? traceStatusToNodeStatus(lastRun.status) : undefined,
+          durationMs: lastRun?.durationMs,
+          error: lastRun?.error,
+          _orphanNodeId: o.nodeId,
+          onOrphanClick: handleNodeSelect,
+        } as OrphanNodeData,
+      };
+    });
 
     return [...pipelineFlowNodes, ...orphanFlowNodes];
   }, [pipelineNodes, orphanNodes, runGroups, selectedNodeId, handleNodeSelect]);
 
   // Convert pipeline edges + orphan connector edges
   const flowEdges = useMemo((): Edge[] => {
-    // Standard pipeline edges
     const standardEdges: Edge[] = pipelineEdges.map(e => ({
       id: e.id,
       source: e.source,
@@ -569,7 +529,6 @@ export function WorkflowDebugView({ trace, pipelineNodes, pipelineEdges }: Workf
       labelBgStyle: { fill: '#fafafa', fillOpacity: 0.8 },
     }));
 
-    // Dashed edges from parent pipeline node → orphan node
     const orphanEdges: Edge[] = orphanNodes
       .filter(o => o.parentNodeId)
       .map(o => ({
@@ -589,7 +548,6 @@ export function WorkflowDebugView({ trace, pipelineNodes, pipelineEdges }: Workf
   const selectedGroup = selectedNodeId ? runGroups.get(selectedNodeId) : null;
   const selectedNodeDef = selectedNodeId
     ? pipelineNodes.find(n => n.id === selectedNodeId)
-      // For orphan nodes, synthesize a minimal node definition for the detail panel
       ?? (() => {
         const orphan = orphanNodes.find(o => o.nodeId === selectedNodeId);
         if (!orphan) return undefined;
@@ -607,12 +565,12 @@ export function WorkflowDebugView({ trace, pipelineNodes, pipelineEdges }: Workf
 
   return (
     <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-      {/* ReactFlow Canvas */}
+      {/* ReactFlow Canvas — same component as editor, read-only */}
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <ReactFlow
           nodes={flowNodes}
           edges={flowEdges}
-          nodeTypes={allNodeTypes}
+          nodeTypes={debugNodeTypes}
           fitView
           fitViewOptions={{ padding: 0.3 }}
           nodesDraggable={false}
@@ -624,22 +582,30 @@ export function WorkflowDebugView({ trace, pipelineNodes, pipelineEdges }: Workf
           onNodeClick={(_, node) => handleNodeSelect(node.id)}
           onPaneClick={() => setSelectedNodeId(null)}
         >
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e0e0e0" />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e2e8f0" />
           <Controls showInteractive={false} />
           <MiniMap
             nodeColor={n => {
-              const d = n.data as DebugNodeData;
-              const group = d.runGroup;
-              if (group && group.runs.length > 0) {
-                const lastStatus = group.runs[group.runs.length - 1].status;
-                if (lastStatus === 'success') return '#22c55e';
-                if (lastStatus === 'error') return '#ef4444';
-                if (lastStatus === 'running') return '#3b82f6';
-              }
-              return categoryColors[d.category]?.border || '#999';
+              const d = n.data as WfNodeData;
+              if (d.status === 'completed') return '#22c55e';
+              if (d.status === 'failed') return '#ef4444';
+              if (d.status === 'running') return '#3b82f6';
+              const palette = getPaletteForType(d.nodeType);
+              return palette?.color || '#94a3b8';
             }}
+            maskColor="rgba(0,0,0,0.08)"
             style={{ borderRadius: 8, border: '1px solid #e0e0e0' }}
           />
+
+          {/* Read-only banner */}
+          <Panel position="top-left">
+            <Paper elevation={1} sx={{ px: 1.5, py: 0.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#e3f2fd', border: '1px solid #bbdefb' }}>
+              <Typography sx={{ fontSize: '0.65rem', color: '#1565c0', fontWeight: 600 }}>
+                🔒 Read-only debug view — execution data overlaid on workflow canvas
+              </Typography>
+            </Paper>
+          </Panel>
+
           {/* Legend for orphan sub-steps */}
           {orphanNodes.length > 0 && (
             <Panel position="top-right">

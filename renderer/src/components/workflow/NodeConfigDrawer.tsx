@@ -25,15 +25,18 @@ import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
+import Autocomplete from '@mui/material/Autocomplete';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import KeyIcon from '@mui/icons-material/Key';
 
 import Checkbox from '@mui/material/Checkbox';
 import ListItemText from '@mui/material/ListItemText';
 import ListSubheader from '@mui/material/ListSubheader';
 
 import { useBackend } from '../../context/BackendContext';
+import { DataBlock, StatusIcon, countDataItems } from '../shared/ExecutionViewParts';
 import type { WfNodeData } from './workflow.types';
 import type { ConnectorTriggerDef } from './workflow.constants';
 
@@ -225,24 +228,12 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
                   {execResult.itemCount != null && ` — ${execResult.itemCount} item${execResult.itemCount !== 1 ? 's' : ''}`}
                 </Alert>
 
-                <Box
-                  sx={{
-                    mt: 1,
-                    p: 1.5,
-                    bgcolor: '#f5f5f5',
-                    borderRadius: 1,
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    lineHeight: 1.5,
-                    overflow: 'auto',
-                    maxHeight: 400,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    border: '1px solid #e0e0e0',
-                  }}
-                >
-                  {JSON.stringify(execResult.data, null, 2)}
-                </Box>
+                <DataBlock
+                  label="Output"
+                  data={execResult.data}
+                  color="#22c55e"
+                  maxHeight={400}
+                />
               </>
             )}
           </Box>
@@ -545,20 +536,70 @@ function HttpRequestConfig({ node, cfg, onUpdate }: ConfigProps) {
 }
 
 function LlmConfig({ node, cfg, onUpdate }: ConfigProps) {
+  const backend = useBackend();
+  const [savedPrompts, setSavedPrompts] = useState<Record<string, string> | null>(null);
+
+  // Load saved prompts so we can offer them as templates
+  useEffect(() => {
+    if (node.data.nodeType !== 'llm') return;
+    (async () => {
+      try {
+        const loaded = await backend.promptsLoad();
+        setSavedPrompts(loaded as unknown as Record<string, string>);
+      } catch { /* ignore */ }
+    })();
+  }, [backend, node.data.nodeType]);
+
   if (node.data.nodeType !== 'llm') return null;
+
+  const promptKeys = savedPrompts ? Object.keys(savedPrompts) : [];
+
   return (
     <>
+      {/* Load prompt from saved prompts */}
+      {promptKeys.length > 0 && (
+        <Autocomplete
+          size="small"
+          options={promptKeys}
+          getOptionLabel={(key) => {
+            const labels: Record<string, string> = {
+              systemPrompt: 'System Prompt',
+              researchAgentPrompt: 'Research Agent',
+              checkAgentPrompt: 'Check Agent',
+              actionPlannerPrompt: 'Action Planner',
+              codeEditorPrompt: 'Code Editor',
+              verificationPrompt: 'Verification Agent',
+              commitMessagePrompt: 'Commit Message',
+            };
+            return labels[key] || key;
+          }}
+          renderInput={(params) => (
+            <TextField {...params} label="Load from Saved Prompts" placeholder="Search prompts…" />
+          )}
+          onChange={(_, key) => {
+            if (key && savedPrompts?.[key]) {
+              onUpdate(node.id, {
+                config: { ...cfg, systemPrompt: savedPrompts[key] },
+              });
+            }
+          }}
+          sx={{ mb: 2 }}
+          clearOnEscape
+        />
+      )}
+
       <TextField
         label="System Message"
         size="small"
         fullWidth
         multiline
-        rows={4}
+        rows={5}
         value={(cfg.systemPrompt as string) || ''}
         onChange={(e) => onUpdate(node.id, {
           config: { ...cfg, systemPrompt: e.target.value },
         })}
-        sx={{ mb: 2 }}
+        helperText="The base persona / instructions for the AI. You can load from saved prompts above."
+        sx={{ mb: 2, '& textarea': { fontFamily: '"JetBrains Mono", monospace', fontSize: 11 } }}
       />
       <TextField
         label="Prompt (User Message)"
@@ -570,9 +611,29 @@ function LlmConfig({ node, cfg, onUpdate }: ConfigProps) {
         onChange={(e) => onUpdate(node.id, {
           config: { ...cfg, prompt: e.target.value },
         })}
-        sx={{ mb: 2 }}
+        sx={{ mb: 2, '& textarea': { fontFamily: '"JetBrains Mono", monospace', fontSize: 11 } }}
         placeholder="{{ $json.prompt }}"
+        helperText="Use {{ $json.fieldName }} to reference data from previous nodes."
       />
+
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Model</InputLabel>
+        <Select
+          value={(cfg.model as string) || 'default'}
+          label="Model"
+          onChange={(e) => onUpdate(node.id, {
+            config: { ...cfg, model: e.target.value },
+          })}
+        >
+          <MenuItem value="default">Default (workspace setting)</MenuItem>
+          <MenuItem value="gpt-4o">GPT-4o</MenuItem>
+          <MenuItem value="gpt-4o-mini">GPT-4o Mini</MenuItem>
+          <MenuItem value="claude-3.5-sonnet">Claude 3.5 Sonnet</MenuItem>
+          <MenuItem value="claude-3-haiku">Claude 3 Haiku</MenuItem>
+          <MenuItem value="gemini-pro">Gemini Pro</MenuItem>
+        </Select>
+      </FormControl>
+
       <TextField
         label="Max Iterations"
         size="small"
@@ -584,6 +645,20 @@ function LlmConfig({ node, cfg, onUpdate }: ConfigProps) {
         })}
         sx={{ mb: 2 }}
       />
+
+      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Streaming</InputLabel>
+        <Select
+          value={cfg.stream != null ? String(cfg.stream) : 'true'}
+          label="Streaming"
+          onChange={(e) => onUpdate(node.id, {
+            config: { ...cfg, stream: e.target.value === 'true' },
+          })}
+        >
+          <MenuItem value="true">Yes — stream tokens as they arrive</MenuItem>
+          <MenuItem value="false">No — wait for complete response</MenuItem>
+        </Select>
+      </FormControl>
     </>
   );
 }
@@ -629,8 +704,13 @@ function DecisionConfig({ node, cfg, onUpdate }: ConfigProps) {
 
 function ActionConfig({ node, cfg, onUpdate }: ConfigProps) {
   const backend = useBackend();
-  const [connectors, setConnectors] = useState<Array<{ id: string; name: string }>>([]);
+  const [connectors, setConnectors] = useState<Array<{ id: string; name: string; icon?: string; category?: string }>>([]);
   const [actions, setActions] = useState<Array<{ id: string; name: string; description: string; inputSchema?: Record<string, unknown> }>>([]);
+  const [credentialStatus, setCredentialStatus] = useState<{ status: string; error?: string } | null>(null);
+  const [configFields, setConfigFields] = useState<Array<{ key: string; label: string; type: string; placeholder?: string; required: boolean; helpText?: string }>>([]);
+  const [showCredentialsForm, setShowCredentialsForm] = useState(false);
+  const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
+  const [savingCredentials, setSavingCredentials] = useState(false);
 
   // Fetch all registered connectors on mount
   useEffect(() => {
@@ -638,26 +718,31 @@ function ActionConfig({ node, cfg, onUpdate }: ConfigProps) {
     (async () => {
       try {
         const list = await backend.connectorList();
-        setConnectors(list.map((c: any) => ({ id: c.id, name: c.name })));
+        setConnectors(list.map((c: any) => ({ id: c.id, name: c.name, icon: c.icon, category: c.category })));
       } catch { /* ignore */ }
     })();
   }, [backend, node.data.nodeType]);
 
-  // Fetch actions whenever the selected connector changes
+  // Fetch actions + credential status whenever the selected connector changes
   useEffect(() => {
     const connectorId = cfg.connectorId as string;
     if (!connectorId || node.data.nodeType !== 'action') {
       setActions([]);
+      setCredentialStatus(null);
+      setConfigFields([]);
       return;
     }
     (async () => {
       try {
         const detail = await backend.connectorGet(connectorId);
-        if (detail?.actions) {
-          setActions(detail.actions);
-        } else {
-          setActions([]);
-        }
+        if (detail?.actions) setActions(detail.actions);
+        else setActions([]);
+        if (detail?.configFields) setConfigFields(detail.configFields);
+        if (detail?.state) setCredentialStatus(detail.state);
+
+        // Load existing credential values
+        const saved = await backend.connectorLoadConfig(connectorId);
+        if (saved) setCredentialValues(saved as Record<string, string>);
       } catch {
         setActions([]);
       }
@@ -666,54 +751,146 @@ function ActionConfig({ node, cfg, onUpdate }: ConfigProps) {
 
   if (node.data.nodeType !== 'action') return null;
 
+  const selectedConnector = connectors.find(c => c.id === (cfg.connectorId as string));
   const selectedAction = actions.find(a => a.id === (cfg.actionId as string));
   const inputSchema = (selectedAction?.inputSchema || {}) as Record<string, {
     type: string; label: string; required?: boolean; placeholder?: string;
   }>;
 
+  const handleSaveCredentials = async () => {
+    const connectorId = cfg.connectorId as string;
+    if (!connectorId) return;
+    setSavingCredentials(true);
+    try {
+      await backend.connectorSaveConfig(connectorId, credentialValues);
+      const testResult = await backend.connectorTest(connectorId, credentialValues);
+      setCredentialStatus({ status: testResult.success ? 'connected' : 'error', error: testResult.error });
+      if (testResult.success) setShowCredentialsForm(false);
+    } catch (err: any) {
+      setCredentialStatus({ status: 'error', error: err.message });
+    } finally {
+      setSavingCredentials(false);
+    }
+  };
+
   return (
     <>
-      {/* Connector selector */}
-      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
-        <InputLabel>Connector</InputLabel>
-        <Select
-          value={(cfg.connectorId as string) || ''}
-          label="Connector"
-          onChange={(e) => onUpdate(node.id, {
-            config: { connectorId: e.target.value, actionId: '' },
-            subtitle: e.target.value as string,
-          })}
-        >
-          {connectors.map(c => (
-            <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      {/* Connector selector — searchable */}
+      <Autocomplete
+        size="small"
+        options={connectors}
+        getOptionLabel={(c) => c.name}
+        value={selectedConnector || null}
+        onChange={(_, c) => {
+          onUpdate(node.id, {
+            config: { connectorId: c?.id || '', actionId: '' },
+            subtitle: c?.name || '',
+            icon: c?.id === 'github' ? '🐙' : c?.id === 'atlassian' ? '🔷' : c?.id === 'supabase' ? '⚡' : c?.id === 'gmail' ? '📧' : '🔧',
+          });
+        }}
+        renderInput={(params) => (
+          <TextField {...params} label="Connector" placeholder="Search connectors…" />
+        )}
+        renderOption={(props, c) => (
+          <Box component="li" {...props} key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography sx={{ fontSize: 16 }}>
+              {c.id === 'github' ? '🐙' : c.id === 'atlassian' ? '🔷' : c.id === 'supabase' ? '⚡' : c.id === 'gmail' ? '📧' : c.id === 'digitalocean' ? '🌊' : '🔌'}
+            </Typography>
+            <Box>
+              <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{c.name}</Typography>
+              {c.category && <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>{c.category}</Typography>}
+            </Box>
+          </Box>
+        )}
+        sx={{ mb: 2 }}
+      />
 
-      {/* Action selector */}
-      <FormControl size="small" fullWidth sx={{ mb: 2 }}>
-        <InputLabel>Action</InputLabel>
-        <Select
-          value={(cfg.actionId as string) || ''}
-          label="Action"
-          onChange={(e) => {
-            // Clear old param values when switching actions, keep connector & action
-            onUpdate(node.id, {
-              config: { connectorId: cfg.connectorId, actionId: e.target.value },
-              subtitle: `${(cfg.connectorId as string) || ''}:${e.target.value}`,
-            });
-          }}
-        >
-          {actions.map(a => (
-            <MenuItem key={a.id} value={a.id}>
-              <Box>
-                <Typography variant="body2">{a.name}</Typography>
-                <Typography variant="caption" color="text.secondary">{a.description}</Typography>
-              </Box>
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      {/* Credential status + config */}
+      {(cfg.connectorId as string) && (
+        <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, border: '1px solid #e0e0e0', bgcolor: '#fafafa' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: showCredentialsForm ? 1.5 : 0 }}>
+            <KeyIcon sx={{ fontSize: 16, color: credentialStatus?.status === 'connected' ? '#22c55e' : '#f59e0b' }} />
+            <Typography sx={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+              Credentials
+            </Typography>
+            <Chip
+              label={credentialStatus?.status === 'connected' ? 'Connected' : 'Not configured'}
+              size="small"
+              sx={{
+                height: 20, fontSize: 10, fontWeight: 600,
+                bgcolor: credentialStatus?.status === 'connected' ? '#dcfce7' : '#fef3c7',
+                color: credentialStatus?.status === 'connected' ? '#166534' : '#92400e',
+              }}
+            />
+            <Button
+              size="small"
+              onClick={() => setShowCredentialsForm(!showCredentialsForm)}
+              sx={{ fontSize: 10, textTransform: 'none', minWidth: 'auto' }}
+            >
+              {showCredentialsForm ? 'Hide' : 'Configure'}
+            </Button>
+          </Box>
+          {credentialStatus?.error && (
+            <Alert severity="error" sx={{ fontSize: 11, mb: 1, py: 0 }}>{credentialStatus.error}</Alert>
+          )}
+          {showCredentialsForm && configFields.length > 0 && (
+            <Box>
+              {configFields.map(field => (
+                <TextField
+                  key={field.key}
+                  label={field.label}
+                  size="small"
+                  fullWidth
+                  type={field.type === 'password' ? 'password' : 'text'}
+                  value={credentialValues[field.key] || ''}
+                  onChange={(e) => setCredentialValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                  placeholder={field.placeholder}
+                  helperText={field.helpText}
+                  required={field.required}
+                  sx={{ mb: 1 }}
+                />
+              ))}
+              <Button
+                size="small"
+                variant="contained"
+                onClick={handleSaveCredentials}
+                disabled={savingCredentials}
+                sx={{ mt: 0.5, borderRadius: 6, fontSize: 11, textTransform: 'none' }}
+                startIcon={savingCredentials ? <CircularProgress size={12} color="inherit" /> : <KeyIcon sx={{ fontSize: 14 }} />}
+              >
+                {savingCredentials ? 'Testing…' : 'Save & Test'}
+              </Button>
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {/* Action selector — searchable */}
+      <Autocomplete
+        size="small"
+        options={actions}
+        getOptionLabel={(a) => a.name}
+        value={selectedAction || null}
+        onChange={(_, a) => {
+          onUpdate(node.id, {
+            config: { connectorId: cfg.connectorId, actionId: a?.id || '' },
+            subtitle: `${(cfg.connectorId as string) || ''}:${a?.id || ''}`,
+          });
+        }}
+        renderInput={(params) => (
+          <TextField {...params} label="Action" placeholder="Search actions…" />
+        )}
+        renderOption={(props, a) => (
+          <Box component="li" {...props} key={a.id}>
+            <Box>
+              <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{a.name}</Typography>
+              <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>{a.description}</Typography>
+            </Box>
+          </Box>
+        )}
+        disabled={!cfg.connectorId || actions.length === 0}
+        sx={{ mb: 2 }}
+      />
 
       {/* Dynamic input fields from inputSchema */}
       {Object.keys(inputSchema).length > 0 && (
@@ -781,9 +958,23 @@ const DEVELOPER_TOOLS = [
 ];
 
 function DeveloperConfig({ node, cfg, onUpdate }: ConfigProps) {
+  const backend = useBackend();
+  const [savedPrompts, setSavedPrompts] = useState<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    if (node.data.nodeType !== 'developer') return;
+    (async () => {
+      try {
+        const loaded = await backend.promptsLoad();
+        setSavedPrompts(loaded as unknown as Record<string, string>);
+      } catch { /* ignore */ }
+    })();
+  }, [backend, node.data.nodeType]);
+
   if (node.data.nodeType !== 'developer') return null;
 
   const enabledTools = (cfg.tools as string[]) || ['file-read', 'file-write', 'file-search', 'file-tree'];
+  const promptKeys = savedPrompts ? Object.keys(savedPrompts) : [];
 
   return (
     <>
@@ -876,18 +1067,48 @@ function DeveloperConfig({ node, cfg, onUpdate }: ConfigProps) {
         </Select>
       </FormControl>
 
+      {/* System Prompt with saved prompt loader */}
+      {promptKeys.length > 0 && (
+        <Autocomplete
+          size="small"
+          options={promptKeys}
+          getOptionLabel={(key) => {
+            const labels: Record<string, string> = {
+              systemPrompt: 'System Prompt', researchAgentPrompt: 'Research Agent',
+              checkAgentPrompt: 'Check Agent', actionPlannerPrompt: 'Action Planner',
+              codeEditorPrompt: 'Code Editor', verificationPrompt: 'Verification',
+              commitMessagePrompt: 'Commit Message',
+            };
+            return labels[key] || key;
+          }}
+          renderInput={(params) => (
+            <TextField {...params} label="Load Prompt Template" placeholder="Search prompts…" />
+          )}
+          onChange={(_, key) => {
+            if (key && savedPrompts?.[key]) {
+              onUpdate(node.id, {
+                config: { ...cfg, systemPrompt: savedPrompts[key] },
+              });
+            }
+          }}
+          sx={{ mb: 1.5 }}
+          clearOnEscape
+        />
+      )}
+
       <TextField
         label="System Prompt Override"
         size="small"
         fullWidth
         multiline
-        rows={3}
+        rows={4}
         value={(cfg.systemPrompt as string) || ''}
         onChange={(e) => onUpdate(node.id, {
           config: { ...cfg, systemPrompt: e.target.value },
         })}
         placeholder="(optional) Custom system prompt for this agent"
-        sx={{ mb: 2 }}
+        helperText="Load from saved prompts above, or write a custom prompt."
+        sx={{ mb: 2, '& textarea': { fontFamily: '"JetBrains Mono", monospace', fontSize: 11 } }}
       />
     </>
   );

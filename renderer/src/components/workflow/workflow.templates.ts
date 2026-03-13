@@ -54,13 +54,15 @@ const chatEdges: Edge[] = [
 ];
 
 // ─── Agent Workflow ─────────────────────────────────────────────────────────
-// Chat Input → Triage → Research → AI Agent (with tools) → Output
+// Full multi-node agent: Chat Input → Triage → Research → AI Agent (loop) →
+//   Model + Memory + Tools (GitHub, File ops, Terminal) → Output
+// Mirrors the n8n AI Agent pattern with sub-nodes for Model, Memory, and Tool connections.
 
 const agentNodes: Node<WfNodeData>[] = [
   {
     id: 'agent-trigger',
     type: 'workflowNode',
-    position: { x: 60, y: 250 },
+    position: { x: 60, y: 280 },
     data: {
       label: 'Chat Input',
       icon: '💬',
@@ -72,7 +74,7 @@ const agentNodes: Node<WfNodeData>[] = [
   {
     id: 'agent-triage',
     type: 'workflowNode',
-    position: { x: 300, y: 150 },
+    position: { x: 280, y: 180 },
     data: {
       label: 'Triage',
       icon: '🔍',
@@ -89,7 +91,7 @@ const agentNodes: Node<WfNodeData>[] = [
   {
     id: 'agent-research',
     type: 'workflowNode',
-    position: { x: 540, y: 100 },
+    position: { x: 520, y: 80 },
     data: {
       label: 'Research',
       icon: '📚',
@@ -103,10 +105,116 @@ const agentNodes: Node<WfNodeData>[] = [
       subtitle: 'Find relevant files',
     },
   },
+  // ── AI Agent Hub (the core loop node) ──
+  {
+    id: 'agent-hub',
+    type: 'workflowNode',
+    position: { x: 520, y: 230 },
+    data: {
+      label: 'AI Agent',
+      icon: '🤖',
+      nodeType: 'llm',
+      config: {
+        type: 'llm',
+        prompt: '{{ $json.message }}',
+        systemPrompt: 'You are an AI agent. Use the available tools to fulfill the user request. Plan first, then execute, then verify.',
+        stream: true,
+        model: 'default',
+        maxIterations: 15,
+        enableToolUse: true,
+      },
+      subtitle: 'Agent loop: plan → act → verify',
+    },
+  },
+  // ── Model sub-node ──
+  {
+    id: 'agent-model',
+    type: 'workflowNode',
+    position: { x: 400, y: 400 },
+    data: {
+      label: 'Model',
+      icon: '🧠',
+      nodeType: 'llm',
+      config: {
+        type: 'llm',
+        model: 'default',
+        temperature: 0.7,
+        maxTokens: 4096,
+      },
+      subtitle: 'LLM configuration',
+    },
+  },
+  // ── Memory sub-node ──
+  {
+    id: 'agent-memory',
+    type: 'workflowNode',
+    position: { x: 520, y: 400 },
+    data: {
+      label: 'Chat Memory',
+      icon: '💾',
+      nodeType: 'transform',
+      config: {
+        type: 'memory',
+        memoryType: 'window',
+        windowSize: 20,
+      },
+      subtitle: 'Window buffer memory',
+    },
+  },
+  // ── Tool: File Operations ──
+  {
+    id: 'agent-tool-files',
+    type: 'workflowNode',
+    position: { x: 640, y: 400 },
+    data: {
+      label: 'File Tools',
+      icon: '📁',
+      nodeType: 'action',
+      config: {
+        type: 'tools',
+        tools: ['file-read', 'file-write', 'file-search', 'file-tree'],
+      },
+      subtitle: 'read, write, search',
+    },
+  },
+  // ── Tool: GitHub ──
+  {
+    id: 'agent-tool-github',
+    type: 'workflowNode',
+    position: { x: 760, y: 400 },
+    data: {
+      label: 'GitHub',
+      icon: '🐙',
+      nodeType: 'action',
+      config: {
+        type: 'tools',
+        connectorId: 'github',
+        tools: ['list-files', 'create-file', 'get-file'],
+      },
+      subtitle: 'list, create, get files',
+    },
+  },
+  // ── Tool: Terminal ──
+  {
+    id: 'agent-tool-terminal',
+    type: 'workflowNode',
+    position: { x: 880, y: 400 },
+    data: {
+      label: 'Terminal',
+      icon: '💻',
+      nodeType: 'action',
+      config: {
+        type: 'tools',
+        tools: ['terminal'],
+      },
+      subtitle: 'Run shell commands',
+    },
+  },
+  // ── Developer Agent (edit-verify loop) ──
   {
     id: 'agent-developer',
     type: 'workflowNode',
-    position: { x: 540, y: 300 },
+    position: { x: 760, y: 230 },
     data: {
       label: 'Developer Agent',
       icon: '👨‍💻',
@@ -122,10 +230,11 @@ const agentNodes: Node<WfNodeData>[] = [
       subtitle: 'Plan → Edit → Verify',
     },
   },
+  // ── Chat Response (for non-edit questions) ──
   {
     id: 'agent-chat-response',
     type: 'workflowNode',
-    position: { x: 300, y: 400 },
+    position: { x: 280, y: 420 },
     data: {
       label: 'Chat Response',
       icon: '💡',
@@ -145,7 +254,15 @@ const agentEdges: Edge[] = [
   { id: 'e-agent-trigger-triage', source: 'agent-trigger', target: 'agent-triage', animated: true },
   { id: 'e-triage-research', source: 'agent-triage', target: 'agent-research', animated: true, sourceHandle: 'true', label: 'needs changes' },
   { id: 'e-triage-chat', source: 'agent-triage', target: 'agent-chat-response', animated: true, sourceHandle: 'false', label: 'question only' },
-  { id: 'e-research-developer', source: 'agent-research', target: 'agent-developer', animated: true },
+  { id: 'e-research-hub', source: 'agent-research', target: 'agent-hub', animated: true },
+  // Sub-node connections (Model, Memory, Tools → AI Agent Hub)
+  { id: 'e-model-hub', source: 'agent-model', target: 'agent-hub', animated: true, style: { strokeDasharray: '4,4' } },
+  { id: 'e-memory-hub', source: 'agent-memory', target: 'agent-hub', animated: true, style: { strokeDasharray: '4,4' } },
+  { id: 'e-files-hub', source: 'agent-tool-files', target: 'agent-hub', animated: true, style: { strokeDasharray: '4,4' } },
+  { id: 'e-github-hub', source: 'agent-tool-github', target: 'agent-hub', animated: true, style: { strokeDasharray: '4,4' } },
+  { id: 'e-terminal-hub', source: 'agent-tool-terminal', target: 'agent-hub', animated: true, style: { strokeDasharray: '4,4' } },
+  // Agent Hub → Developer Agent → Chat Response
+  { id: 'e-hub-developer', source: 'agent-hub', target: 'agent-developer', animated: true },
   { id: 'e-developer-chat', source: 'agent-developer', target: 'agent-chat-response', animated: true, label: 'done' },
 ];
 

@@ -48,6 +48,7 @@ import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import LinearProgress from '@mui/material/LinearProgress';
+import Autocomplete from '@mui/material/Autocomplete';
 
 import AddIcon from '@mui/icons-material/Add';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -59,6 +60,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import LockIcon from '@mui/icons-material/Lock';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import EditIcon from '@mui/icons-material/Edit';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -121,6 +123,8 @@ export default function WorkflowEditor() {
   const chatInputRef = useRef<HTMLInputElement>(null);
 
   const [templateBrowserOpen, setTemplateBrowserOpen] = useState(false);
+  const [renamingWorkflow, setRenamingWorkflow] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
 
   const activeWorkflow = workflows.find(w => w.id === activeWorkflowId);
 
@@ -269,6 +273,25 @@ export default function WorkflowEditor() {
     window.dispatchEvent(new Event('workflow-saved'));
   }, [activeWorkflowId, workflows, backend, isBuiltIn]);
 
+  // ── Rename active workflow ──
+  const renameWorkflow = useCallback(async (newName: string) => {
+    if (!activeWorkflowId || isBuiltIn || !newName.trim()) return;
+    const trimmed = newName.trim();
+    setWorkflows(prev => prev.map(w => w.id === activeWorkflowId ? { ...w, name: trimmed, updatedAt: new Date().toISOString() } : w));
+    // Persist
+    const wf: EditorWorkflow = {
+      id: activeWorkflowId,
+      name: trimmed,
+      description: activeWorkflow?.description,
+      nodes,
+      edges,
+      createdAt: activeWorkflow?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await backend.orchestratorSaveEditorWorkflow(wf, folderPath || undefined);
+    window.dispatchEvent(new Event('workflow-saved'));
+  }, [activeWorkflowId, activeWorkflow, nodes, edges, backend, isBuiltIn, folderPath]);
+
   // ── Clone a built-in template into a new editable workflow ──
 
   const handleCloneTemplate = useCallback(async (template: WorkflowTemplate) => {
@@ -410,7 +433,8 @@ export default function WorkflowEditor() {
         bgcolor: '#fafbfc',
         backdropFilter: 'blur(8px)',
       }}>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
+        {/* Workflow selector */}
+        <FormControl size="small" sx={{ minWidth: 180 }}>
           <InputLabel>Workflow</InputLabel>
           <Select
             value={activeWorkflowId || ''}
@@ -421,6 +445,7 @@ export default function WorkflowEditor() {
                 setActiveWorkflowId(wf.id);
                 setNodes(wf.nodes);
                 setEdges(wf.edges);
+                setRenamingWorkflow(false);
               }
             }}
           >
@@ -432,6 +457,37 @@ export default function WorkflowEditor() {
             ))}
           </Select>
         </FormControl>
+
+        {/* Inline rename */}
+        {activeWorkflow && !isBuiltIn && (
+          renamingWorkflow ? (
+            <TextField
+              autoFocus
+              size="small"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={() => { renameWorkflow(renameValue); setRenamingWorkflow(false); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { renameWorkflow(renameValue); setRenamingWorkflow(false); }
+                if (e.key === 'Escape') setRenamingWorkflow(false);
+              }}
+              sx={{ width: 180, '& .MuiInputBase-input': { fontSize: 13, fontWeight: 700, py: 0.5 } }}
+            />
+          ) : (
+            <Tooltip title="Click to rename workflow">
+              <Chip
+                icon={<EditIcon sx={{ fontSize: 14 }} />}
+                label={activeWorkflow.name}
+                onClick={() => { setRenameValue(activeWorkflow.name); setRenamingWorkflow(true); }}
+                variant="outlined"
+                sx={{
+                  fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                  '&:hover': { borderColor: 'primary.main', bgcolor: 'primary.main', color: '#fff', '& .MuiChip-icon': { color: '#fff' } },
+                }}
+              />
+            </Tooltip>
+          )
+        )}
 
         {/* Built-in badge + Clone button */}
         {isBuiltIn && (

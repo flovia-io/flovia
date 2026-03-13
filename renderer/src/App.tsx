@@ -19,6 +19,8 @@ import ChatPanel from './components/ChatPanel';
 import Welcome from './components/Welcome';
 import TerminalPanel from './components/TerminalPanel';
 
+// TODO(config): Move these UI constants to theme/constants.ts so they're
+// configurable from a single place and reusable across components.
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 600;
 const SIDEBAR_DEFAULT = 260;

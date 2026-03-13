@@ -126,6 +126,7 @@ export class EventBus {
   private maxHistory: number;
 
   constructor(options?: { maxHistory?: number }) {
+    // TODO(perf): Consider a circular buffer instead of array + slice for history trimming
     this.maxHistory = options?.maxHistory ?? 1000;
   }
 
@@ -157,6 +158,7 @@ export class EventBus {
     const specific = this.listeners.get(key);
     if (specific) {
       for (const listener of specific) {
+        // TODO(observability): Log swallowed errors — silent failures make debugging impossible
         try { listener(event as BusEvent); } catch { /* swallow listener errors */ }
       }
     }

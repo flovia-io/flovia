@@ -1,9 +1,13 @@
 /**
  * Central type exports
  * Re-exports all types from the types/ directory for backward compatibility
- * 
+ *
  * For new code, prefer importing directly from types/:
  * import type { ChatMessage } from './types/ai.types';
+ *
+ * TODO(cleanup): This file duplicates types/index.ts with a DIFFERENT subset of
+ * exports. Consolidate into a single barrel file to prevent divergence.
+ * Choose one: this file or types/index.ts — not both.
  */
 
 // File types

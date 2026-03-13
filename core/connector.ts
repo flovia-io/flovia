@@ -157,6 +157,8 @@ export class ConnectorRegistry {
   /**
    * Register a new connector. This is the main entry point for plugins.
    */
+  // TODO(validation): Validate connector.metadata exists and has required fields
+  // before registering — currently crashes if connector.metadata is undefined.
   register(connector: Connector): void {
     if (this.connectors.has(connector.metadata.id)) {
       throw new Error(`Connector "${connector.metadata.id}" is already registered`);

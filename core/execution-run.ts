@@ -258,9 +258,9 @@ export class RunManager {
   /** Load persisted runs */
   async loadRuns(): Promise<void> {
     try {
+      // TODO(incomplete): loadRuns() is a no-op — implement actual run loading
+      // from storage. Currently runs are lost on restart.
       const saved = await this.storage.loadWorkflows();
-      // Runs are stored separately from workflows
-      // Use generic storage for run data
     } catch { /* ignore load errors */ }
   }
 
@@ -274,7 +274,9 @@ export class RunManager {
         // Don't persist full event arrays (too large) — keep step logs
         events: [],
       }));
-      // Use the generic writeJSON on the underlying storage
+      // TODO(type-safety): OrchestratorStorage should include writeJSON in its
+      // interface — casting to `any` here bypasses type checking entirely.
+      // Add writeJSON/readJSON to OrchestratorStorage or use StoragePort directly.
       const storage = this.storage as any;
       if (typeof storage.writeJSON === 'function') {
         await storage.writeJSON('execution-runs', serializable);

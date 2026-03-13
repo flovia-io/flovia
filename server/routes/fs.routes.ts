@@ -1,5 +1,13 @@
 /**
  * File System & Git routes.
+ *
+ * //TODO(security): Add path traversal protection — validate that all file paths
+ * resolve within the workspace directory before performing any read/write/delete.
+ * Currently req.body.filePath is used unsanitized, allowing ../../etc/passwd reads.
+ *
+ * //TODO(consistency): Standardize error handling — some routes return 200 with
+ * { success: false } while others use fail() with proper HTTP status codes.
+ * Pick one pattern and apply everywhere.
  */
 import { Router } from 'express';
 import fs from 'fs';
@@ -17,20 +25,24 @@ router.post('/fs/open-folder', (req, res) => {
   } catch (err) { fail(res, err); }
 });
 
+// TODO(security): Validate filePath is within workspace before reading
 router.post('/fs/read-file', (req, res) => {
   try {
     const content = fs.readFileSync(req.body.filePath, 'utf-8');
     ok(res, { success: true, content });
   } catch (err) {
+    // TODO(consistency): Use fail(res, err) instead of ok() with error payload
     ok(res, { success: false, error: (err as Error).message });
   }
 });
 
+// TODO(security): Validate filePath is within workspace before writing
 router.post('/fs/save-file', (req, res) => {
   try {
     fs.writeFileSync(req.body.filePath, req.body.content, 'utf-8');
     ok(res, { success: true });
   } catch (err) {
+    // TODO(consistency): Use fail(res, err) instead of ok() with error payload
     ok(res, { success: false, error: (err as Error).message });
   }
 });

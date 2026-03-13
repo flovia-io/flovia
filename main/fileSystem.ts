@@ -1,3 +1,6 @@
+// TODO(architecture): This file mixes git operations, file tree, and text search.
+// Split into: gitOps.ts, fileTree.ts, textSearch.ts for better maintainability.
+// TODO(security): Validate all incoming paths are within workspace boundaries.
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -74,72 +77,44 @@ function listFilesRecursively(dirPath: string, basePath: string = ''): string[] 
   return result;
 }
 
+// TODO(cleanup): Excessive debug console.log statements were removed here.
+// If verbose logging is needed, use a proper debug logger (e.g. `debug` npm package).
 export function getGitChangedFilesSplit(folderPath: string): GitFileChange[] {
   try {
     const out = execSync('git status --porcelain', { cwd: folderPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    console.log('[getGitChangedFilesSplit] Raw git status output:');
-    console.log(JSON.stringify(out)); // Show exact string with escapes
     const result: GitFileChange[] = [];
-    // Split by newlines and also handle \r\n for Windows
-    // IMPORTANT: Don't use trim() on the full output as it removes leading spaces from the first line
-    // which are significant in porcelain format (space = not staged)
+    // Don't trim() the full output — leading spaces are significant in porcelain format.
     const lines = out.replace(/\r/g, '').split('\n').filter(line => line.length > 0);
-    console.log(`[getGitChangedFilesSplit] Number of lines: ${lines.length}`);
+
     for (const line of lines) {
-      // git status --porcelain format: XY filename
-      // X = index status (staged), Y = working tree status (unstaged)
-      // Position 0: X, Position 1: Y, Position 2: space, Position 3+: filename
-      // But we need to be robust - check for malformed lines
-      if (line.length < 4) {
-        console.log(`[getGitChangedFilesSplit] Skipping short line (len=${line.length}): "${line}"`);
-        continue;
-      }
-      
-      // Log character codes for debugging
-      console.log(`[getGitChangedFilesSplit] Line chars: [${line.charCodeAt(0)}, ${line.charCodeAt(1)}, ${line.charCodeAt(2)}] = "${line.substring(0,3)}" | rest: "${line.substring(3)}"`);
-      
-      // Check if line has the expected format (char, char, space, filename)
-      // If position 2 is not a space, this might be malformed output from another git command
-      if (line[2] !== ' ') {
-        console.log(`[getGitChangedFilesSplit] Skipping non-porcelain line (pos2='${line[2]}' code=${line.charCodeAt(2)}): "${line}"`);
-        continue;
-      }
-      
-      const indexStatus = line[0];   // staged column
-      const wtStatus = line[1];      // working tree column
-      let file = line.substring(3);
-      console.log(`[getGitChangedFilesSplit] Line: "${line}" | indexStatus: "${indexStatus}" | wtStatus: "${wtStatus}" | file: "${file}"`);
+      // git status --porcelain format: XY filename (X=index, Y=worktree)
+      if (line.length < 4 || line[2] !== ' ') continue;
+
+      const indexStatus = line[0];
+      const wtStatus = line[1];
+      const file = line.substring(3);
 
       // Staged change (index column has a letter, not space or ?)
       if (indexStatus !== ' ' && indexStatus !== '?') {
-        console.log(`[getGitChangedFilesSplit] Adding staged: ${file} (status: ${indexStatus})`);
         result.push({ file, status: indexStatus, staged: true });
       }
       // Unstaged / working tree change
       if (wtStatus !== ' ' && wtStatus !== undefined) {
-        // Untracked files show as '??' — only add once as unstaged
         if (indexStatus === '?') {
-          // Check if this is a directory (ends with /) - expand it to individual files
+          // Untracked: expand directories to individual files
           if (file.endsWith('/')) {
-            const dirPath = path.join(folderPath, file);
-            const filesInDir = listFilesRecursively(dirPath);
-            console.log(`[getGitChangedFilesSplit] Expanding untracked directory: ${file} -> ${filesInDir.length} files`);
-            for (const subFile of filesInDir) {
-              const fullRelPath = file + subFile;
-              console.log(`[getGitChangedFilesSplit] Adding untracked file from dir: ${fullRelPath}`);
-              result.push({ file: fullRelPath, status: '??', staged: false });
+            const dirFullPath = path.join(folderPath, file);
+            for (const subFile of listFilesRecursively(dirFullPath)) {
+              result.push({ file: file + subFile, status: '??', staged: false });
             }
           } else {
-            console.log(`[getGitChangedFilesSplit] Adding untracked: ${file}`);
             result.push({ file, status: '??', staged: false });
           }
         } else {
-          console.log(`[getGitChangedFilesSplit] Adding unstaged: ${file} (status: ${wtStatus})`);
           result.push({ file, status: wtStatus, staged: false });
         }
       }
     }
-    console.log('[getGitChangedFilesSplit] Final result:', JSON.stringify(result, null, 2));
     return result;
   } catch {
     return [];
@@ -157,28 +132,22 @@ export function gitUnstageFile(folderPath: string, filePath: string): void {
 }
 
 export function gitStageAll(folderPath: string): void {
-  console.log('[gitStageAll] Staging all files in:', folderPath);
   execSync('git add -A', { cwd: folderPath });
-  console.log('[gitStageAll] Done');
 }
 
 export function gitUnstageAll(folderPath: string): void {
-  console.log('[gitUnstageAll] Unstaging all files in:', folderPath);
   try {
-    // First, check if we have any commits (HEAD exists)
     try {
       execSync('git rev-parse HEAD', { cwd: folderPath, stdio: ['pipe', 'pipe', 'pipe'] });
-      // HEAD exists, use git reset
       execSync('git reset HEAD --quiet', { cwd: folderPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
     } catch {
       // No commits yet, use git rm --cached for all staged files
       execSync('git rm --cached -r . --quiet 2>/dev/null || true', { cwd: folderPath, encoding: 'utf-8', shell: '/bin/bash' });
     }
-    // Wait a tiny bit for git index to be fully written
+    // TODO(perf): Remove this sleep — investigate if git index write is actually async
     execSync('sleep 0.05', { cwd: folderPath });
-    console.log('[gitUnstageAll] Done');
-  } catch (err) {
-    console.error('[gitUnstageAll] Error:', err);
+  } catch {
+    // Unstage failures are non-critical
   }
 }
 

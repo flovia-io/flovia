@@ -1,6 +1,10 @@
 /**
  * useTabManager — Tab lifecycle hook extracted from WorkspaceContext.
  * Handles opening, closing, updating, and saving editor tabs.
+ *
+ * TODO(duplication): The openXxxTab functions (openSupabaseTab, openSqlQueryTab,
+ * openAgentsTab, openHtmlPreview, openWorkflowEditor) all follow the same pattern.
+ * Extract a generic openSpecialTab(key, name, opts?) factory to eliminate repetition.
  */
 import { useState, useCallback } from 'react';
 import type { Tab } from '../types';

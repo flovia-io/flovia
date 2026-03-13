@@ -4,6 +4,13 @@
  * NOTE: The per-connector routes below are LEGACY — they exist for backward
  * compatibility. New code should use the generic connector REST API
  * (`/api/connectors/:id/actions/:actionId`) in `server/index.ts`.
+ *
+ * TODO(deprecation): Migrate all callers to the generic connector API and remove
+ * these legacy routes. Each connector-specific route duplicates logic that already
+ * exists in the connector plugin system.
+ *
+ * TODO(security): Add rate limiting to prevent API abuse — especially for
+ * /supabase/query and /github/* endpoints which proxy to external APIs.
  */
 import { Router } from 'express';
 import { findNpmProjects } from '@flovia/main/workspace';

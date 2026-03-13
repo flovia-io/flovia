@@ -58,3 +58,16 @@ export interface RunStep {
   output?: unknown;
   error?: string;
 }
+
+/** Per-run input/output snapshot for a single node execution (used in debug view) */
+export interface NodeRunInfo {
+  runIndex: number;
+  status: string;
+  durationMs?: number;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+  tokens?: { total: number; prompt?: number; completion?: number };
+  timestamp?: string;
+  type?: string;
+}

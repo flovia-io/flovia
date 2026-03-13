@@ -43,7 +43,7 @@ import ListSubheader from '@mui/material/ListSubheader';
 
 import { useBackend } from '../../context/BackendContext';
 import { DataBlock, StatusIcon, countDataItems, formatDuration } from '../shared/ExecutionViewParts';
-import type { WfNodeData } from './workflow.types';
+import type { WfNodeData, NodeRunInfo } from './workflow.types';
 import type { ConnectorTriggerDef } from './workflow.constants';
 
 interface UpstreamNode {
@@ -59,9 +59,13 @@ interface Props {
   onUpdateNodeData: (nodeId: string, updates: Partial<WfNodeData>) => void;
   onDeleteNode: (nodeId: string) => void;
   upstreamNodes?: UpstreamNode[];
+  /** When true, all parameter fields are disabled (debug / read-only mode) */
+  readOnly?: boolean;
+  /** Per-run input/output data for the selected node (debug mode). If a node ran multiple times, each entry is one execution. */
+  debugRuns?: NodeRunInfo[];
 }
 
-export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDeleteNode, upstreamNodes = [] }: Props) {
+export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDeleteNode, upstreamNodes = [], readOnly = false, debugRuns }: Props) {
   const backend = useBackend();
   const [execResult, setExecResult] = useState<{ success: boolean; data?: unknown; error?: string; itemCount?: number } | null>(null);
   const [executing, setExecuting] = useState(false);
@@ -211,7 +215,12 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography sx={{ fontSize: 24 }}>{node.data.icon}</Typography>
             <Box>
-              <Typography variant="subtitle1" fontWeight={700}>{node.data.label}</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Typography variant="subtitle1" fontWeight={700}>{node.data.label}</Typography>
+                {readOnly && (
+                  <Chip label="Read-only" size="small" sx={{ height: 18, fontSize: 9, fontWeight: 700, bgcolor: '#e3f2fd', color: '#1565c0' }} />
+                )}
+              </Box>
               {node.data.status && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
                   <StatusIcon status={node.data.status} size={14} />
@@ -267,13 +276,29 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
             }
             sx={{ minHeight: 32, py: 0, fontSize: 12 }}
           />
+          {debugRuns && debugRuns.length > 0 && (
+            <Tab
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  Runs
+                  <Chip label={debugRuns.length} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, bgcolor: '#e3f2fd', color: '#1976d2' }} />
+                </Box>
+              }
+              sx={{ minHeight: 32, py: 0, fontSize: 12 }}
+            />
+          )}
         </Tabs>
 
         <Divider sx={{ mb: 2 }} />
 
         {/* ── Parameters Tab ── */}
         {activeTab === 0 && (
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
+          <Box sx={{ flex: 1, overflow: 'auto', ...(readOnly && { pointerEvents: 'none', opacity: 0.85 }) }}>
+            {readOnly && (
+              <Alert severity="info" sx={{ mb: 2, fontSize: 11, py: 0.25 }}>
+                🔒 Parameters are read-only in debug mode
+              </Alert>
+            )}
             {/* Name */}
             <TextField
               label="Name"
@@ -281,6 +306,7 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
               fullWidth
               value={node.data.label}
               onChange={(e) => onUpdateNodeData(node.id, { label: e.target.value })}
+              disabled={readOnly}
               sx={{ mb: 2 }}
             />
 
@@ -505,38 +531,126 @@ export function NodeConfigDrawer({ open, node, onClose, onUpdateNodeData, onDele
             {/* ── No output yet ── */}
             {!isRunning && !execResult && !hasLiveOutput && !hasOutput && !hasError && (
               <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                No output yet. Click "Execute step" to run this node, or execute the full workflow.
+                {readOnly
+                  ? 'No output recorded for this node.'
+                  : 'No output yet. Click "Execute step" to run this node, or execute the full workflow.'}
               </Typography>
             )}
           </Box>
         )}
 
-        {/* ── Bottom actions ── */}
-        <Divider sx={{ mt: 2, mb: 1 }} />
+        {/* ── Runs Tab (debug mode — per-execution input/output) ── */}
+        {activeTab === 2 && debugRuns && debugRuns.length > 0 && (
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            {debugRuns.map((run, idx) => (
+              <DebugRunCard key={idx} run={run} index={idx} />
+            ))}
+          </Box>
+        )}
 
-        <Button
-          variant="contained"
-          size="small"
-          startIcon={executing ? <CircularProgress size={14} color="inherit" /> : <PlayArrowIcon />}
-          disabled={executing || isRunning}
-          sx={{ mb: 1, borderRadius: 6 }}
-          onClick={handleExecute}
-        >
-          {executing || isRunning ? 'Executing…' : 'Execute step'}
-        </Button>
+        {/* ── Bottom actions (hidden in read-only mode) ── */}
+        {!readOnly && (
+          <>
+            <Divider sx={{ mt: 2, mb: 1 }} />
 
-        <Button
-          variant="outlined"
-          color="error"
-          size="small"
-          startIcon={<DeleteIcon />}
-          onClick={() => onDeleteNode(node.id)}
-          sx={{ mb: 2 }}
-        >
-          Delete Node
-        </Button>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={executing ? <CircularProgress size={14} color="inherit" /> : <PlayArrowIcon />}
+              disabled={executing || isRunning}
+              sx={{ mb: 1, borderRadius: 6 }}
+              onClick={handleExecute}
+            >
+              {executing || isRunning ? 'Executing…' : 'Execute step'}
+            </Button>
+
+            <Button
+              variant="outlined"
+              color="error"
+              size="small"
+              startIcon={<DeleteIcon />}
+              onClick={() => onDeleteNode(node.id)}
+              sx={{ mb: 2 }}
+            >
+              Delete Node
+            </Button>
+          </>
+        )}
       </Box>
     </Drawer>
+  );
+}
+
+// ─── Debug Run Card (per-execution input/output in Runs tab) ────────────────
+
+function DebugRunCard({ run, index }: { run: NodeRunInfo; index: number }) {
+  const [tab, setTab] = useState(0);
+  return (
+    <Box sx={{ mb: 2, borderRadius: 2, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
+      {/* Run header */}
+      <Box sx={{
+        display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75,
+        bgcolor: '#f8fafc', borderBottom: '1px solid #e5e7eb',
+      }}>
+        <StatusIcon status={run.status} size={14} />
+        <Typography sx={{ fontWeight: 700, fontSize: '0.75rem', color: '#334155' }}>
+          Run #{index + 1}
+        </Typography>
+        {run.type && (
+          <Chip label={run.type} size="small" sx={{
+            height: 16, fontSize: '0.55rem', fontFamily: 'monospace',
+            bgcolor: run.type === 'llm-call' ? '#e3f2fd' : '#e8f5e9',
+            color: run.type === 'llm-call' ? '#1565c0' : '#2e7d32',
+          }} />
+        )}
+        {run.durationMs != null && (
+          <Typography sx={{ fontSize: '0.65rem', color: '#94a3b8', ml: 'auto' }}>
+            {formatDuration(run.durationMs)}
+          </Typography>
+        )}
+        {run.tokens && (
+          <Chip label={`${run.tokens.total} tok`} size="small" sx={{
+            height: 16, fontSize: '0.5rem', color: '#8b5cf6', bgcolor: '#f5f3ff', border: '1px solid #ddd6fe',
+          }} />
+        )}
+      </Box>
+
+      {/* Error banner */}
+      {run.error && (
+        <Box sx={{ px: 1.5, py: 1, bgcolor: '#fef2f2', borderBottom: '1px solid #fca5a5' }}>
+          <Typography sx={{ fontSize: 11, fontFamily: '"JetBrains Mono", monospace', color: '#b91c1c', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            ⚠ {run.error}
+          </Typography>
+        </Box>
+      )}
+
+      {/* Input/Output tabs */}
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{
+        minHeight: 28, borderBottom: '1px solid #f0f0f0',
+        '& .MuiTab-root': { minHeight: 28, fontSize: '0.68rem', textTransform: 'none', py: 0.25, px: 1.5, minWidth: 'auto' },
+        '& .MuiTabs-indicator': { height: 2 },
+      }}>
+        <Tab label={`Input${run.input != null ? ' ✓' : ''}`} />
+        <Tab label={`Output${run.output != null ? ' ✓' : ''}`} />
+      </Tabs>
+
+      <Box sx={{ p: 1 }}>
+        {tab === 0 && (
+          run.input != null ? (
+            <DataBlock label="" data={run.input} color="#3b82f6" maxHeight={200} />
+          ) : (
+            <Typography sx={{ fontSize: '0.7rem', color: '#9e9e9e', textAlign: 'center', py: 1.5 }}>No input data</Typography>
+          )
+        )}
+        {tab === 1 && (
+          run.output != null ? (
+            <DataBlock label="" data={run.output} color="#22c55e" maxHeight={200} />
+          ) : (
+            <Typography sx={{ fontSize: '0.7rem', color: '#9e9e9e', textAlign: 'center', py: 1.5 }}>No output data</Typography>
+          )
+        )}
+      </Box>
+    </Box>
   );
 }
 

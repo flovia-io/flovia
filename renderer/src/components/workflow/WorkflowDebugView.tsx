@@ -4,9 +4,9 @@
  *
  * Features:
  *  • Uses the SAME WorkflowNode component as the editor (read-only, no dragging)
+ *  • Uses the SAME NodeConfigDrawer as the editor — in read-only mode with "Runs" tab
  *  • Overlays execution data (status, duration, output, error, liveOutput) from traces
  *  • Groups trace steps by node — if a node is hit multiple times (loops), shows "Run 1", "Run 2", etc.
- *  • Right-side detail panel for deep inspection of node runs
  *  • Orphan steps (sub-steps not in the pipeline) rendered as dashed "sub-step" cards
  *  • Shares visual primitives with ExecutionViewParts for consistency
  */
@@ -31,27 +31,18 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
-import IconButton from '@mui/material/IconButton';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
 
 import type { AgentTrace, TraceStep, AgentNode as AgentNodeType, AgentEdge as AgentEdgeType, PhaseCategory } from '../../types/agent.types';
-import { DataBlock, formatDuration, STATUS_COLORS } from '../shared/ExecutionViewParts';
+import { formatDuration, STATUS_COLORS } from '../shared/ExecutionViewParts';
 import { WorkflowNode } from './WorkflowNode';
+import { NodeConfigDrawer } from './NodeConfigDrawer';
 import { getPaletteForType } from './workflow.constants';
-import type { WfNodeData } from './workflow.types';
+import type { WfNodeData, NodeRunInfo } from './workflow.types';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -269,153 +260,6 @@ function findOrphanSteps(
   return orphans;
 }
 
-// ─── Data Table for a single step run ───────────────────────────────────────
-
-function StepRunDataTable({ step, runIndex }: { step: TraceStep; runIndex: number }) {
-  const [tab, setTab] = useState(0);
-
-  return (
-    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden', mb: 1 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, bgcolor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-        {getStatusIcon(step.status, 14)}
-        <Typography sx={{ fontWeight: 700, fontSize: '0.72rem', color: '#334155' }}>Run #{runIndex + 1}</Typography>
-        <Chip label={step.type} size="small" sx={{ height: 16, fontSize: '0.55rem', bgcolor: step.type === 'llm-call' ? '#e3f2fd' : '#e8f5e9', color: step.type === 'llm-call' ? '#1565c0' : '#2e7d32', fontFamily: 'monospace' }} />
-        {step.durationMs != null && (
-          <Typography sx={{ fontSize: '0.62rem', color: '#94a3b8', ml: 'auto' }}>{formatDuration(step.durationMs)}</Typography>
-        )}
-        {step.tokens && (
-          <Chip label={`${step.tokens.total} tok`} size="small" sx={{ height: 16, fontSize: '0.5rem', color: '#8b5cf6', bgcolor: '#f5f3ff', border: '1px solid #ddd6fe' }} />
-        )}
-      </Box>
-
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{
-        minHeight: 28, borderBottom: '1px solid #f0f0f0',
-        '& .MuiTab-root': { minHeight: 28, fontSize: '0.65rem', textTransform: 'none', py: 0.25, px: 1.5, minWidth: 'auto' },
-        '& .MuiTabs-indicator': { height: 2 },
-      }}>
-        <Tab label={`Input${step.input != null ? ' ✓' : ''}`} />
-        <Tab label={`Output${step.output != null ? ' ✓' : ''}`} />
-        <Tab label="Info" />
-      </Tabs>
-
-      <Box sx={{ p: 1 }}>
-        {tab === 0 && (
-          step.input != null ? (
-            <DataBlock label="" data={step.input} color="#3b82f6" maxHeight={180} />
-          ) : (
-            <Typography sx={{ fontSize: '0.68rem', color: '#9e9e9e', textAlign: 'center', py: 1 }}>No input data</Typography>
-          )
-        )}
-        {tab === 1 && (
-          step.output != null ? (
-            <DataBlock label="" data={step.output} color="#22c55e" maxHeight={180} />
-          ) : (
-            <Typography sx={{ fontSize: '0.68rem', color: '#9e9e9e', textAlign: 'center', py: 1 }}>No output data</Typography>
-          )
-        )}
-        {tab === 2 && (
-          <TableContainer>
-            <Table size="small" sx={{ '& .MuiTableCell-root': { fontSize: '0.68rem', py: 0.5, px: 1, fontFamily: 'monospace' } }}>
-              <TableBody>
-                <TableRow><TableCell sx={{ fontWeight: 600, color: '#64748b' }}>Step ID</TableCell><TableCell>{step.id}</TableCell></TableRow>
-                <TableRow><TableCell sx={{ fontWeight: 600, color: '#64748b' }}>Node ID</TableCell><TableCell>{step.nodeId}</TableCell></TableRow>
-                <TableRow><TableCell sx={{ fontWeight: 600, color: '#64748b' }}>Type</TableCell><TableCell>{step.type}</TableCell></TableRow>
-                <TableRow><TableCell sx={{ fontWeight: 600, color: '#64748b' }}>Category</TableCell><TableCell>{step.category}</TableCell></TableRow>
-                <TableRow><TableCell sx={{ fontWeight: 600, color: '#64748b' }}>Timestamp</TableCell><TableCell>{new Date(step.timestamp).toLocaleString()}</TableCell></TableRow>
-                <TableRow><TableCell sx={{ fontWeight: 600, color: '#64748b' }}>Duration</TableCell><TableCell>{step.durationMs != null ? formatDuration(step.durationMs) : '—'}</TableCell></TableRow>
-                {step.chosenFiles && step.chosenFiles.length > 0 && (
-                  <TableRow><TableCell sx={{ fontWeight: 600, color: '#64748b' }}>Chosen Files</TableCell><TableCell>{step.chosenFiles.join(', ')}</TableCell></TableRow>
-                )}
-                {step.error && (
-                  <TableRow><TableCell sx={{ fontWeight: 600, color: '#ef4444' }}>Error</TableCell><TableCell sx={{ color: '#ef4444' }}>{step.error}</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </Box>
-    </Paper>
-  );
-}
-
-// ─── Node Debug Detail Panel (sidebar when a node is selected) ──────────────
-
-function NodeDebugDetail({ group, nodeDef }: { group: NodeRunGroup; nodeDef?: AgentNodeType }) {
-  return (
-    <Box sx={{ p: 2, overflowY: 'auto', height: '100%' }}>
-      {/* Node header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <Typography sx={{ fontSize: '1.4rem' }}>{nodeDef?.icon || '⚡'}</Typography>
-        <Box sx={{ flex: 1 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: '0.92rem', color: '#1a1a2e' }}>{group.nodeLabel}</Typography>
-          <Typography sx={{ fontSize: '0.68rem', color: '#78909c' }}>{nodeDef?.description || ''}</Typography>
-        </Box>
-        <Chip
-          label={`${group.runs.length} run${group.runs.length !== 1 ? 's' : ''}`}
-          size="small"
-          sx={{ fontWeight: 700, fontSize: '0.65rem', bgcolor: '#e3f2fd', color: '#1976d2' }}
-        />
-      </Box>
-
-      {/* Error banner for failed runs */}
-      {group.runs.some(r => r.status === 'error') && (
-        <Box sx={{
-          mb: 2, p: 1.5, borderRadius: 2,
-          border: '1px solid #fca5a5', bgcolor: '#fef2f2',
-        }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#991b1b', mb: 0.5 }}>⚠ Error</Typography>
-          {group.runs.filter(r => r.error).map((r, i) => (
-            <Typography key={i} sx={{
-              fontSize: 11, fontFamily: '"JetBrains Mono", monospace',
-              color: '#b91c1c', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            }}>
-              {r.error}
-            </Typography>
-          ))}
-        </Box>
-      )}
-
-      {/* Runs summary table */}
-      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, mb: 2 }}>
-        <Table size="small" sx={{ '& .MuiTableCell-root': { fontSize: '0.68rem', py: 0.5, px: 1 } }}>
-          <TableHead>
-            <TableRow sx={{ bgcolor: '#f8fafc' }}>
-              <TableCell sx={{ fontWeight: 700 }}>Run</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Duration</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Tokens</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {group.runs.map((run, idx) => (
-              <TableRow key={run.id} sx={{ '&:hover': { bgcolor: '#f8fafc' } }}>
-                <TableCell sx={{ fontWeight: 600 }}>#{idx + 1}</TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    {getStatusIcon(run.status, 14)}
-                    <span>{run.status}</span>
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Chip label={run.type} size="small" sx={{ height: 16, fontSize: '0.55rem', fontFamily: 'monospace' }} />
-                </TableCell>
-                <TableCell>{run.durationMs != null ? formatDuration(run.durationMs) : '—'}</TableCell>
-                <TableCell>{run.tokens ? run.tokens.total.toLocaleString() : '—'}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      {/* Detailed data per run */}
-      {group.runs.map((run, idx) => (
-        <StepRunDataTable key={run.id} step={run} runIndex={idx} />
-      ))}
-    </Box>
-  );
-}
-
 // ─── Main WorkflowDebugView ─────────────────────────────────────────────────
 
 export interface WorkflowDebugViewProps {
@@ -563,6 +407,28 @@ export function WorkflowDebugView({ trace, pipelineNodes, pipelineEdges }: Workf
       })()
     : undefined;
 
+  // Build the flow node for NodeConfigDrawer (same shape it expects)
+  const selectedFlowNode = useMemo((): Node<WfNodeData> | null => {
+    if (!selectedNodeId) return null;
+    return flowNodes.find(n => n.id === selectedNodeId) ?? null;
+  }, [selectedNodeId, flowNodes]);
+
+  // Convert trace runs into NodeRunInfo[] for the drawer's "Runs" tab
+  const selectedDebugRuns = useMemo((): NodeRunInfo[] | undefined => {
+    if (!selectedGroup) return undefined;
+    return selectedGroup.runs.map((run, idx) => ({
+      runIndex: idx,
+      status: run.status,
+      durationMs: run.durationMs,
+      input: run.input,
+      output: run.output,
+      error: run.error,
+      tokens: run.tokens,
+      timestamp: run.timestamp,
+      type: run.type,
+    }));
+  }, [selectedGroup]);
+
   return (
     <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* ReactFlow Canvas — same component as editor, read-only */}
@@ -619,66 +485,16 @@ export function WorkflowDebugView({ trace, pipelineNodes, pipelineEdges }: Workf
         </ReactFlow>
       </Box>
 
-      {/* Right Detail Panel (shows when a node is selected and has runs) */}
-      {selectedGroup && (
-        <Paper
-          elevation={0}
-          sx={{
-            width: 420,
-            borderLeft: '1px solid #e0e0e0',
-            flexShrink: 0,
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {/* Panel header */}
-          <Box sx={{
-            px: 2, py: 1.25,
-            borderBottom: `3px solid ${categoryColors[selectedGroup.category]?.border || '#999'}`,
-            bgcolor: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>
-            <Typography sx={{ fontWeight: 700, fontSize: '0.88rem', color: '#1a1a2e' }}>
-              {selectedGroup.nodeLabel}
-            </Typography>
-            <IconButton size="small" onClick={() => setSelectedNodeId(null)}>
-              <ExpandLessIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          </Box>
-
-          {/* Panel body */}
-          <Box sx={{ flex: 1, overflow: 'auto', bgcolor: '#fafafa' }}>
-            <NodeDebugDetail group={selectedGroup} nodeDef={selectedNodeDef} />
-          </Box>
-        </Paper>
-      )}
-
-      {/* If selected node has no runs, show a hint */}
-      {selectedNodeId && !selectedGroup && (
-        <Paper
-          elevation={0}
-          sx={{
-            width: 320,
-            borderLeft: '1px solid #e0e0e0',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: '#fafafa',
-          }}
-        >
-          <Box sx={{ textAlign: 'center', px: 3 }}>
-            <Typography sx={{ fontSize: '1.5rem', mb: 1 }}>🔇</Typography>
-            <Typography sx={{ fontWeight: 600, fontSize: '0.85rem', color: '#9e9e9e' }}>
-              No execution data
-            </Typography>
-            <Typography sx={{ fontSize: '0.72rem', color: '#bdbdbd', mt: 0.5 }}>
-              This node was not reached during this run.
-            </Typography>
-          </Box>
-        </Paper>
-      )}
+      {/* NodeConfigDrawer — same as editor, but read-only with debug runs */}
+      <NodeConfigDrawer
+        open={!!selectedNodeId}
+        node={selectedFlowNode}
+        onClose={() => setSelectedNodeId(null)}
+        onUpdateNodeData={() => {}} // no-op in debug mode
+        onDeleteNode={() => {}} // no-op in debug mode
+        readOnly
+        debugRuns={selectedDebugRuns}
+      />
     </Box>
   );
 }

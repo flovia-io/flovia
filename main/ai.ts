@@ -1,3 +1,5 @@
+// TODO(architecture): This file handles OpenAI, Anthropic, and Ollama all in one.
+// Consider splitting into separate provider files with a common interface.
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -10,6 +12,7 @@ export interface AISettings {
 
 export async function checkOllama(): Promise<boolean> {
   try {
+    // TODO(config): Extract Ollama URL to env var (OLLAMA_BASE_URL) instead of hardcoding
     const res = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(2000) });
     return res.ok;
   } catch {

@@ -6,6 +6,10 @@
  * Cloud adapter:    reads/writes to a database (Postgres, SQLite, etc.).
  *
  * Domain modules never know *where* data is stored.
+ *
+ * TODO(architecture): FileStorageAdapter implementation is defined in the same
+ * file as the port interface. Move it to a separate file (e.g. fileStorageAdapter.ts)
+ * to properly separate the port from the adapter per hexagonal architecture.
  */
 
 // ─── Connector Persistence ──────────────────────────────────────────────────

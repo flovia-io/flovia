@@ -7,6 +7,11 @@
  *
  * Each step emits execution trace events via the optional `trace` callbacks,
  * so the Agent Builder's trace viewer can display real-time observability.
+ *
+ * TODO(error-handling): Several catch blocks silently swallow errors (e.g. file reads).
+ * Add consistent error reporting so users know when steps fail.
+ * TODO(cancellation): Long-running AI calls and file reads are not cancellable.
+ * Wire AbortSignal through the pipeline for proper cancellation support.
  */
 import { useCallback } from 'react';
 import type { ChatMessage, FileActionPlan, FileActionProgress, DisplayMessage } from '../types';

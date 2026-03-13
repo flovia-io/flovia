@@ -14,6 +14,9 @@ import type { AgentProfile, Workflow } from './orchestrator';
 
 // ─── Connector Operations ───
 
+// TODO(critical): This interface is empty — implement it with proper connector
+// operations (list, getState, testConnection, executeAction, setConfig) so
+// the BackendAdapter can actually work with connectors via the adapter pattern.
 export interface ConnectorOperations {
   // ...existing code...
 }

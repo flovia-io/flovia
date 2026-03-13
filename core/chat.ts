@@ -101,7 +101,8 @@ export function applySearchReplaceBlocks(content: string, blocks: SearchReplaceB
         const after = resultLines.slice(startIdx + searchLines.length);
         result = [...before, block.replace, ...after].join('\n');
       }
-      // If still no match, skip this block silently
+      // TODO(ux): Silent skip is dangerous — user won't know their change wasn't applied.
+      // Return unmatched blocks to the caller for proper error reporting.
     }
   }
   return result;
@@ -127,6 +128,7 @@ export function buildSystemContext(
   params?: PromptParameters,
 ): ChatMessage {
   const sorted = [...fileList].sort();
+  // TODO(cleanup): Magic number 303 — extract to a named constant
   const maxDisplay = params?.maxFileListDisplay ?? 303;
 
   if (params?.systemContextPrompt) {

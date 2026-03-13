@@ -53,7 +53,8 @@ const rendererDist = path.resolve(__dirname, '..', 'renderer', 'dist');
 app.use(express.static(rendererDist));
 
 // ─── Bootstrap ───
-
+// TODO(duplication): This bootstrap block is duplicated in main/index.ts.
+// Extract to a shared bootstrapConnectors() function in core/.
 registerBuiltInConnectors();
 const registry = getConnectorRegistry();
 const storage = getStorage();

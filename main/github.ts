@@ -5,6 +5,9 @@
  * This file re-exports everything so existing imports don't break.
  *
  * @deprecated Import from `connectors/github/api` instead.
+ *
+ * TODO(dead-code): Find all importers of this shim and migrate them to
+ * import from `connectors/github/api` directly, then delete this file.
  */
 export {
   extractRepoInfo,

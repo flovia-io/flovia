@@ -7,6 +7,7 @@ let terminalCounter = 0;
 
 function defaultShell(): string {
   if (process.platform === 'win32') return 'powershell.exe';
+  // TODO(compat): Fallback should be /bin/sh or /bin/bash — not all systems have zsh
   return process.env.SHELL || '/bin/zsh';
 }
 

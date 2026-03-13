@@ -3,6 +3,7 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { useBackend } from '../context/BackendContext';
 import type { WorkspaceHistory } from '../types';
 import { StartPageChat, WelcomeConnections } from './start';
+import { BUILTIN_TEMPLATES, type EditorWorkflow } from './workflow';
 
 function formatRelativeTime(isoString: string): string {
   const date = new Date(isoString);
@@ -35,8 +36,9 @@ export default function Welcome() {
   const backend = useBackend();
   const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceHistory[]>([]);
   const [allChats, setAllChats] = useState<ChatEntry[]>([]);
+  const [userWorkflows, setUserWorkflows] = useState<EditorWorkflow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'projects' | 'chats'>('projects');
+  const [activeTab, setActiveTab] = useState<'projects' | 'chats' | 'workflows'>('projects');
 
   useEffect(() => {
     (async () => {
@@ -62,6 +64,15 @@ export default function Welcome() {
         // Sort by most recently updated
         chats.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
         setAllChats(chats);
+
+        // Load user workflows (custom, non-builtin)
+        try {
+          const allWfs = (await backend.orchestratorListEditorWorkflows()) as EditorWorkflow[];
+          const customWfs = allWfs.filter(w => !w.id.startsWith('builtin:'));
+          setUserWorkflows(customWfs);
+        } catch {
+          // workflows may not be available
+        }
       } catch (err) {
         console.error('[Welcome] Failed to load recent workspaces:', err);
       } finally {
@@ -100,6 +111,26 @@ export default function Welcome() {
     }
   }, []);
 
+  /** Open a workflow — creates a session workspace and opens the workflow editor */
+  const openWorkflow = useCallback(async (workflowId: string, workflowName: string) => {
+    try {
+      const result = await backend.sessionCreateFolder('workflow-project');
+      if (result.success && result.folderPath) {
+        await backend.historyOpenWorkspace(result.folderPath);
+        window.dispatchEvent(new CustomEvent('open-workspace', {
+          detail: { folderPath: result.folderPath }
+        }));
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-workflow-editor-tab', {
+            detail: { workflowId, workflowName }
+          }));
+        }, 600);
+      }
+    } catch (err) {
+      console.error('[Welcome] Failed to open workflow:', err);
+    }
+  }, [backend]);
+
   return (
     <div className="welcome">
       <div className="welcome-two-col">
@@ -131,6 +162,15 @@ export default function Welcome() {
                     💬 All Chats
                     {allChats.length > 0 && (
                       <span className="welcome-tab-count">{allChats.length}</span>
+                    )}
+                  </button>
+                  <button
+                    className={`welcome-tab ${activeTab === 'workflows' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('workflows')}
+                  >
+                    ⚡ Workflows
+                    {userWorkflows.length > 0 && (
+                      <span className="welcome-tab-count">{userWorkflows.length}</span>
                     )}
                   </button>
                 </div>
@@ -192,6 +232,43 @@ export default function Welcome() {
                                 <span>{chat.messageCount} message{chat.messageCount !== 1 ? 's' : ''}</span>
                                 <span className="welcome-chat-item-sep">·</span>
                                 <span>{formatRelativeTime(chat.updatedAt)}</span>
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Workflows tab */}
+                {activeTab === 'workflows' && (
+                  <div className="welcome-tab-content">
+                    {userWorkflows.length === 0 ? (
+                      <div className="welcome-chats-empty">
+                        <p>No custom workflows yet. Create one from the Workflow Editor!</p>
+                      </div>
+                    ) : (
+                      <div className="welcome-chats-list">
+                        {userWorkflows.map(wf => (
+                          <div
+                            key={wf.id}
+                            className="welcome-chat-item"
+                            onClick={() => openWorkflow(wf.id, wf.name)}
+                          >
+                            <div className="welcome-chat-item-icon">⚡</div>
+                            <div className="welcome-chat-item-info">
+                              <span className="welcome-chat-item-title">{wf.name}</span>
+                              <span className="welcome-chat-item-meta">
+                                <span>{wf.nodes.length} node{wf.nodes.length !== 1 ? 's' : ''}</span>
+                                <span className="welcome-chat-item-sep">·</span>
+                                <span>{wf.edges.length} connection{wf.edges.length !== 1 ? 's' : ''}</span>
+                                {wf.updatedAt && (
+                                  <>
+                                    <span className="welcome-chat-item-sep">·</span>
+                                    <span>{formatRelativeTime(wf.updatedAt)}</span>
+                                  </>
+                                )}
                               </span>
                             </div>
                           </div>

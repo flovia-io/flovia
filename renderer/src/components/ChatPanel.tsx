@@ -776,14 +776,14 @@ export default function ChatPanel({ onCollapse }: ChatPanelProps) {
                     })}
                     {/* ── Local models section ── */}
                     <div className="mode-group-label">Local AI</div>
-                    {(['Agent', 'Chat', 'Edit'] as ChatMode[]).map(m => (
+                    {(['Agent', 'Chat'] as ChatMode[]).map(m => (
                       <button 
                         key={m} 
                         className={`composer-dropdown-item ${m === mode ? 'active' : ''}`} 
                         onClick={() => { setMode(m); setModeMenuOpen(false); }}
                       >
                         <span className="mode-item-icon">
-                          {m === 'Agent' ? '🤖' : m === 'Chat' ? '💬' : '✏️'}
+                          {m === 'Agent' ? '🤖' : '💬'}
                         </span>
                         {m}
                       </button>

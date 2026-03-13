@@ -6,7 +6,7 @@ import type { CliProviderId } from './cliProvider.types';
 export type SidePanel = 'explorer' | 'search' | 'source-control' | 'npm' | 'supabase' | 'database' | 'github' | 'atlassian' | 'mcp' | 'copilot' | 'gmail' | 'digitalocean';
 
 /** Chat mode — local AI modes, external CLI provider via 'cli:<providerId>', or custom workflow via 'wf:<workflowId>' */
-export type ChatMode = 'Agent' | 'Chat' | 'Edit' | `cli:${CliProviderId}` | `wf:${string}`;
+export type ChatMode = 'Agent' | 'Chat' | `cli:${CliProviderId}` | `wf:${string}`;
 
 /** Helper to check if a ChatMode is a CLI provider mode */
 export function isCliMode(mode: ChatMode): mode is `cli:${CliProviderId}` {

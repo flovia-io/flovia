@@ -104,7 +104,12 @@ const genWorkflowId = () => `wf-${Date.now()}-${Math.random().toString(36).slice
 
 export default function WorkflowEditor() {
   const backend = useBackend();
-  const { folderPath } = useWorkspace();
+  const { folderPath, activeTabPath } = useWorkspace();
+
+  // Derive the requested workflow ID from the tab path (e.g. "workflow:builtin:chat")
+  const tabWorkflowId = activeTabPath?.startsWith('workflow:')
+    ? activeTabPath.replace('workflow:', '') || null
+    : null;
 
   // State
   const [workflows, setWorkflows] = useState<EditorWorkflow[]>([]);
@@ -148,14 +153,33 @@ export default function WorkflowEditor() {
           ...saved,
         ];
         setWorkflows(merged);
-        if (merged.length > 0) {
-          setActiveWorkflowId(merged[0].id);
-          setNodes(merged[0].nodes);
-          setEdges(merged[0].edges);
+
+        // If a specific workflow was requested via tab, open it; otherwise default to first
+        const requestedId = tabWorkflowId && tabWorkflowId !== 'new' ? tabWorkflowId : null;
+        const target = requestedId
+          ? merged.find(w => w.id === requestedId)
+          : merged[0];
+
+        if (target) {
+          setActiveWorkflowId(target.id);
+          setNodes(target.nodes);
+          setEdges(target.edges);
         }
       } catch { /* ignore */ }
     })();
-  }, []);
+  }, [tabWorkflowId]);
+
+  // ── Sync active workflow when tab switches to a different workflow ──
+  useEffect(() => {
+    if (!tabWorkflowId || tabWorkflowId === 'new' || workflows.length === 0) return;
+    if (tabWorkflowId === activeWorkflowId) return;
+    const target = workflows.find(w => w.id === tabWorkflowId);
+    if (target) {
+      setActiveWorkflowId(target.id);
+      setNodes(target.nodes);
+      setEdges(target.edges);
+    }
+  }, [tabWorkflowId, workflows]);
 
   // ── Load runs ──
   useEffect(() => {

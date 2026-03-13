@@ -266,45 +266,43 @@ const agentEdges: Edge[] = [
   { id: 'e-developer-chat', source: 'agent-developer', target: 'agent-chat-response', animated: true, label: 'done' },
 ];
 
-// ─── Edit Workflow ──────────────────────────────────────────────────────────
-// Chat Input → Developer Agent (edit-only mode, no triage)
+// ─── Joke Bot Workflow ──────────────────────────────────────────────────────
+// Manual Trigger (scheduled every 1 hour) → AI asks for a joke
 
-const editNodes: Node<WfNodeData>[] = [
+const jokeBotNodes: Node<WfNodeData>[] = [
   {
-    id: 'edit-trigger',
+    id: 'joke-trigger',
     type: 'workflowNode',
     position: { x: 100, y: 200 },
     data: {
-      label: 'Chat Input',
-      icon: '✏️',
+      label: 'Scheduled Trigger',
+      icon: '⏰',
       nodeType: 'trigger',
-      config: { triggerType: 'chat-input' },
-      subtitle: 'User sends an edit request',
+      config: { triggerType: 'manual', schedule: { interval: '1h' } },
+      subtitle: 'Every 1 hour',
     },
   },
   {
-    id: 'edit-developer',
+    id: 'joke-ai',
     type: 'workflowNode',
     position: { x: 380, y: 200 },
     data: {
-      label: 'Code Editor',
-      icon: '👨‍💻',
-      nodeType: 'developer',
+      label: 'Joke Generator',
+      icon: '�',
+      nodeType: 'llm',
       config: {
-        type: 'developer',
-        agentMode: 'edit-only',
-        maxIterations: 5,
-        tools: ['file-read', 'file-write', 'file-search'],
-        planFirst: false,
-        verify: false,
+        type: 'llm',
+        prompt: 'Tell me a funny, clever, and original joke. Make it unique every time.',
+        stream: false,
+        systemPrompt: 'You are a world-class comedian. Respond with one joke only — no explanations, just the joke.',
       },
-      subtitle: 'Direct file editing',
+      subtitle: 'Ask AI for a joke',
     },
   },
 ];
 
-const editEdges: Edge[] = [
-  { id: 'e-edit-trigger-dev', source: 'edit-trigger', target: 'edit-developer', animated: true },
+const jokeBotEdges: Edge[] = [
+  { id: 'e-joke-trigger-ai', source: 'joke-trigger', target: 'joke-ai', animated: true },
 ];
 
 // ─── Template Definitions ───────────────────────────────────────────────────
@@ -359,18 +357,17 @@ export const BUILTIN_TEMPLATES: WorkflowTemplate[] = [
     },
   },
   {
-    id: 'builtin:edit',
-    name: 'Edit',
-    description: 'Quick edit mode — directly modifies files without planning.',
-    icon: '✏️',
-    chatMode: 'Edit',
+    id: 'builtin:joke-bot',
+    name: 'Joke Bot',
+    description: 'Asks AI for a joke every hour — manual trigger with a schedule.',
+    icon: '😂',
     builtIn: true,
     workflow: {
-      id: 'builtin:edit',
-      name: 'Edit',
-      description: 'Direct code editing without triage or verification',
-      nodes: editNodes,
-      edges: editEdges,
+      id: 'builtin:joke-bot',
+      name: 'Joke Bot',
+      description: 'Scheduled workflow that asks AI for a joke every 1 hour',
+      nodes: jokeBotNodes,
+      edges: jokeBotEdges,
       createdAt: now,
       updatedAt: now,
     },

@@ -564,7 +564,7 @@ export default function StartPageChat({ importFolder, onWorkspaceCreated }: Star
       <div className="start-page-chat-header">
         <div className="start-page-chat-title">
           <MessageCircleIcon />
-          <span>mydev.flovia.io</span>
+          <span>flovia</span>
         </div>
         <div className="start-page-chat-header-actions">
           {messages.length > 0 && (
@@ -602,8 +602,8 @@ export default function StartPageChat({ importFolder, onWorkspaceCreated }: Star
         {messages.length === 0 && (
           <div className="start-page-chat-empty">
             <div className="start-page-chat-welcome-actions">
-              <button className="btn-import" onClick={importFolder}>📂 Open Local Folder</button>
-              <button className="btn-upload" onClick={() => {
+              <button className="welcome-action-btn primary" onClick={importFolder}>📂 Open Local Folder</button>
+              <button className="welcome-action-btn secondary" onClick={() => {
                 const input = document.createElement('input');
                 input.type = 'file';
                 input.multiple = true;
@@ -627,7 +627,7 @@ export default function StartPageChat({ importFolder, onWorkspaceCreated }: Star
                 };
                 input.click();
               }}>📎 Upload Files</button>
-              <button className="btn-workflow" onClick={() => {
+              <button className="welcome-action-btn secondary" onClick={() => {
                 window.dispatchEvent(new CustomEvent('create-workflow-onboarding'));
               }}>⚡ Create a Workflow</button>
             </div>

@@ -2,10 +2,7 @@ name: Build & Release
 
 on:
   push:
-    branches: [main, master]
-    tags: ['v*']
-  pull_request:
-    branches: [main, master]
+    tags: ['[0-9]+.[0-9]+.[0-9]+*']
   workflow_dispatch:
 
 # ── Shared env ──────────────────────────────────────────────────
@@ -25,7 +22,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "value=manual-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
   # ── macOS build (universal – Intel + Apple Silicon) ───────────
